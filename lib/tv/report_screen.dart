@@ -7,11 +7,19 @@ String displayReportLogLine(DisplayReport? report) => report == null
     ? 'DisplayReport: unknown'
     : 'DisplayReport: ${report.summary}';
 
+/// Logged once when no view appeared within [maxNullRetries] frames.
+const displayReportGaveUpLine =
+    'DisplayReport: unknown, gave up after $maxNullRetries retries';
+
+/// Post-frame retries while there is no view, before giving up.
+const maxNullRetries = 10;
+
 /// Full-screen DisplayReport, readable from the sofa.
 ///
 /// Reads the report when it first builds and again whenever the view's size
 /// changes. If no view exists yet it logs `DisplayReport: unknown` and retries
-/// after the first frame. Every new reading is logged.
+/// after each frame, at most [maxNullRetries] times, then stops and logs
+/// [displayReportGaveUpLine] once. Every new reading is logged once.
 class ReportScreen extends StatefulWidget {
   const ReportScreen({
     super.key,
@@ -37,32 +45,46 @@ class _ReportScreenState extends State<ReportScreen> {
   DisplayReport? _report;
   String? _lastLogged;
   bool _retryScheduled = false;
+  int _retries = 0;
+  bool _gaveUp = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Depend on the view size so a resolution change re-reads the report.
+    // Depend on the view size and pixel ratio so a resolution change re-reads
+    // the report (1080p -> 4K can keep the logical size and only double the
+    // ratio).
     MediaQuery.sizeOf(context);
+    MediaQuery.devicePixelRatioOf(context);
     _refresh();
   }
 
   void _refresh() {
     _report = widget.read();
     _logIfNew();
-    if (_report == null && !_retryScheduled) {
-      _retryScheduled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _retryScheduled = false;
-        if (!mounted) return;
-        setState(_refresh);
-      });
+    if (_report != null || _retryScheduled || _gaveUp) return;
+    if (_retries >= maxNullRetries) {
+      _gaveUp = true;
+      _emit(displayReportGaveUpLine);
+      return;
     }
+    _retries++;
+    _retryScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _retryScheduled = false;
+      if (!mounted) return;
+      setState(_refresh);
+    });
   }
 
   void _logIfNew() {
     final line = displayReportLogLine(_report);
     if (line == _lastLogged) return;
     _lastLogged = line;
+    _emit(line);
+  }
+
+  void _emit(String line) {
     final log = widget.log;
     if (log != null) {
       log(line);
@@ -101,7 +123,10 @@ class _ReportScreenState extends State<ReportScreen> {
             Text('TV Saver', style: title),
             SizedBox(height: height * 0.05),
             if (report == null)
-              Text('Display: measuring…', style: body)
+              Text(
+                _gaveUp ? 'Display: unknown' : 'Display: measuring…',
+                style: body,
+              )
             else ...[
               Text(
                 'Renders ${report.renderWidth}×${report.renderHeight}',

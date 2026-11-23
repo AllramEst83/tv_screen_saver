@@ -75,6 +75,8 @@ tool/tv/display_report.sh 192.168.0.24:5555
 3. writes `build/measurements/display-report-<timestamp>.txt` with the DisplayReport line, `wm size`, `wm density`, the display modes and HDR capabilities, and the full `dumpsys display`;
 4. prints a summary. Exit 0 when complete, 2 when the app line is missing (the adb sections are still in the file).
 
+The panel size in the line comes from the TV's native display mode (`Display.getMode()`), not from the window size Android reports, because a `wm size` override shrinks the latter. If that read fails, the line ends with `(panel unverified)`: the panel then shows the override, not the real panel, so check it against `wm size` (`Physical size`). If no view appears, the app logs `DisplayReport: unknown` and gives up after 10 frames.
+
 The on-screen report and the log line should match the file. Record the result in the spec memlog (`_bmad-output/specs/spec-tv-screensaver/.memlog.md`).
 
 The app's log line on its own: `adb -s 192.168.0.24:5555 logcat -d -s flutter | grep DisplayReport`.

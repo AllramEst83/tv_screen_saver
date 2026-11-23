@@ -81,6 +81,62 @@ void main() {
     expect(logs.last, startsWith('DisplayReport: renders 1920×1080'));
   });
 
+  testWidgets('no view ever: retries at most 10 times, then gives up once', (
+    tester,
+  ) async {
+    final logs = <String>[];
+    var reads = 0;
+    DisplayReport? read() {
+      reads++;
+      return null;
+    }
+
+    await tester.pumpWidget(
+      _host(ReportScreen(version: '1', read: read, log: logs.add)),
+    );
+    for (var i = 0; i < 30; i++) {
+      await tester.pump();
+    }
+
+    expect(tester.takeException(), isNull);
+    // The first read plus 10 post-frame retries.
+    expect(reads, 1 + maxNullRetries);
+    expect(logs, ['DisplayReport: unknown', displayReportGaveUpLine]);
+    expect(find.text('Display: unknown'), findsOneWidget);
+    // Stopped: no more frames are requested.
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
+
+  testWidgets('a size change re-reads, logs the new reading and shows it', (
+    tester,
+  ) async {
+    final logs = <String>[];
+    // The reading follows the view size, as on a real resolution change.
+    DisplayReport read() =>
+        tester.view.physicalSize.width >= 3840 ? _native4k : _fullHdOn4k;
+    tester.view.physicalSize = const Size(1920, 1080);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      _host(ReportScreen(version: '1', read: read, log: logs.add)),
+    );
+    expect(find.text('Renders 1920×1080'), findsOneWidget);
+
+    tester.view.physicalSize = const Size(3840, 2160);
+    tester.view.devicePixelRatio = 2;
+    await tester.pump();
+
+    expect(find.text('Renders 3840×2160'), findsOneWidget);
+    expect(find.text('Renders 1920×1080'), findsNothing);
+    expect(find.textContaining('(4K)'), findsOneWidget);
+    expect(logs, [
+      'DisplayReport: renders 1920×1080, panel 3840×2160, ratio 1.00 '
+          '(below the panel)',
+      'DisplayReport: renders 3840×2160, panel 3840×2160, ratio 2.00 (4K)',
+    ]);
+  });
+
   testWidgets('a stable reading is logged once across rebuilds', (
     tester,
   ) async {
@@ -93,6 +149,34 @@ void main() {
     await tester.pump();
 
     expect(logs, hasLength(1));
+  });
+
+  testWidgets('the TV app shows the panel size it was given, verified', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1920, 1080);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      const TvSaverApp(version: '1', panel: (width: 3840, height: 2160)),
+    );
+
+    expect(find.text('Panel 3840×2160'), findsOneWidget);
+    expect(find.textContaining('panel unverified'), findsNothing);
+  });
+
+  testWidgets('the TV app without a panel falls back, marked unverified', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1920, 1080);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const TvSaverApp(version: '1'));
+
+    expect(find.text('Panel 3840×2160'), findsNothing);
+    expect(find.textContaining('(panel unverified)'), findsOneWidget);
   });
 
   testWidgets('the TV app shows the report with high-contrast text', (

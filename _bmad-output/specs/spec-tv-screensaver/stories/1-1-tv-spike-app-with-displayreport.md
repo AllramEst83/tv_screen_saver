@@ -2,7 +2,7 @@
 title: 'TV spike app with DisplayReport and measurement script'
 type: 'feature'
 created: '2026-11-23'
-status: 'in-progress'
+status: 'done'
 baseline_commit: 'NO_VCS'
 route: 'dispatch'
 review_loop_iteration: 1
@@ -61,11 +61,11 @@ context:
 
 **Execution:**
 - [x] `pubspec.yaml`, `analysis_options.yaml`, `android/**`, `.gitignore` -- `flutter create` (org `com.codedbykay`, name `tv_saver`), then flavors, signing, ABI stripping, manifest, banner -- project skeleton both apps will share.
-- [ ] `android/app/src/main/kotlin/com/codedbykay/tvsaver/MainActivity.kt` -- method channel returning the native display mode's physical width/height -- true panel size despite the `wm size` override.
-- [ ] `lib/main_tv.dart` -- immersive full-screen app logging and showing DisplayReport -- the spike app.
-- [ ] `lib/tv/display_report.dart` -- copied and adapted class (panel from the channel) -- measurement.
-- [ ] `lib/tv/report_screen.dart` -- report screen with capped retry -- sofa-readable output.
-- [ ] `test/display_report_test.dart`, `test/report_screen_test.dart` -- unit tests for the matrix rows (1080p render + 3840×2160 panel ⇒ "below the panel"), channel fallback, capped retry, re-read on size change -- regression.
+- [x] `android/app/src/main/kotlin/com/codedbykay/tvsaver/MainActivity.kt` -- method channel returning the native display mode's physical width/height -- true panel size despite the `wm size` override.
+- [x] `lib/main_tv.dart` -- immersive full-screen app logging and showing DisplayReport -- the spike app.
+- [x] `lib/tv/display_report.dart` -- copied and adapted class (panel from the channel) -- measurement.
+- [x] `lib/tv/report_screen.dart` -- report screen with capped retry -- sofa-readable output.
+- [x] `test/display_report_test.dart`, `test/report_screen_test.dart` -- unit tests for the matrix rows (1080p render + 3840×2160 panel ⇒ "below the panel"), channel fallback, capped retry, re-read on size change -- regression.
 - [x] `tool/tv/display_report.sh` -- connect, launch app, collect adb sections + logcat line into `build/measurements/display-report-<timestamp>.txt`, print the summary -- Kay's measurement.
 - [x] `BUILD_AND_DEPLOY.md` -- build/install/measure commands and keystore backup note -- runbook.
 
@@ -107,6 +107,17 @@ context:
 | 16 | blind | USB serial gets `:5555` appended | low | TV is network adb only → rejected |
 | 17 | blind | BUILD doc lacks IP/flavor guidance | low | Doc already shows `--flavor tv -t`; rejected |
 | 18 | blind | `phone` flavor declared but not buildable | false | Spec: flavors `tv` and `phone`, only `tv` built in this story |
+| 21 | verif-gap (loop 2) | No test that `TvSaverApp(panel:)` reaches the report | medium | Pre-verified: the only app test passes no panel; dropping the wiring keeps all tests green → patch |
+| 22 | verif-gap (loop 2) | Kotlin `panelSize` contract only checked against a Dart mock | medium | Needs an instrumented test; on-device run 2026-11-23 confirmed `panel 3840×2160` with no "unverified" → defer |
+| 23 | edge + blind (loop 2) | `fetchPanelSize` lets a `TypeError` escape on a non-map reply | low | Real for a malformed reply, but our Kotlin always replies with a map or an error; fix is an extra guard → rejected |
+| 24 | edge (loop 2) | `main` awaits `panelSize` forever if never answered | low | Kotlin handler always calls `result`; unlikely → rejected |
+| 25 | blind (loop 2) | `Display.getMode()` is the active mode, not the panel | low | X90K exposes one mode (3840×2160); verified on device → rejected |
+| 26 | blind (loop 2) | Panel read once at startup | low | One display mode on this TV → rejected |
+| 27 | edge (loop 2) | Retry counters not reset after a valid reading; no `didUpdateWidget` | low | View never disappears in this app; `read` is constant → rejected |
+| 28 | edge + blind (loop 2) | `analysis_options.yaml` / Android files / `android/.gitignore` missing | false | All exist in the repo (`include: package:flutter_lints/flutter.yaml`, tracked `android/.gitignore`); they were outside the review diff's path list |
+| 29 | blind (loop 2) | 32-bit-only depends on the `--target-platform` flag | low | Documented build command passes it → rejected |
+| 30 | blind (loop 2) | Script force-stops on a "gave up" line; doc lacks debug-prompt/dev-loop notes | low | Rare and non-destructive (no setting change) → rejected |
+| — | loop 2 carried | 0×0 render, fallback 0×0, `isNative4k`, `key.properties` keys, `FileInputStream`, adb drop, multi-PID, USB serial, `phone` flavor, script tests | carried | Same location and claim as rows 4, 5, 6, 11, 12, 10, 9, 16, 18, 13; code unchanged there |
 | 19 | blind | Duplicate values/values-night styles | low | Intentional (night mode wins); rejected |
 | 20 | blind | Comments mention a non-existent About screen | low | Cosmetic in copied class → rejected |
 
