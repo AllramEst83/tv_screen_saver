@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'tv/display_report.dart';
 import 'tv/report_screen.dart';
+import 'tv/video_spike/spike_log.dart';
+import 'tv/video_spike/spike_native.dart';
+import 'tv/video_spike/spike_screen.dart';
 
 /// TV app entry point (flavor `tv`, `com.codedbykay.tvsaver.tv`).
 ///
@@ -28,6 +33,9 @@ Future<void> main() async {
     debugPrint('TV Saver: native panel size unavailable, panel unverified');
   }
 
+  // Story 1-2: what the TV can decode (HEVC profiles, AC-3 / E-AC-3).
+  unawaited(logVideoDecoders(const ChannelSpikeNative()));
+
   runApp(TvSaverApp(version: version, panel: panel));
 }
 
@@ -48,10 +56,56 @@ class TvSaverApp extends StatelessWidget {
       theme: ThemeData(brightness: Brightness.dark),
       home: Scaffold(
         backgroundColor: Colors.black,
-        body: ReportScreen(
-          version: version,
-          read: () => DisplayReport.read(panel: panel),
+        body: _SpikeLauncher(
+          child: ReportScreen(
+            version: version,
+            read: () => DisplayReport.read(panel: panel),
+          ),
         ),
+      ),
+    );
+  }
+}
+
+/// Wraps the report screen: OK / Enter on the remote opens the video spike
+/// (story 1-2) as a second route. The report screen itself is unchanged.
+class _SpikeLauncher extends StatelessWidget {
+  const _SpikeLauncher({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final height = MediaQuery.sizeOf(context).height;
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.select ||
+            key == LogicalKeyboardKey.enter) {
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute<void>(builder: (_) => const SpikeScreen()));
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Stack(
+        children: [
+          child,
+          Positioned(
+            right: height * 0.1,
+            bottom: height * 0.08,
+            child: Text(
+              'OK: video spike',
+              style: TextStyle(
+                color: const Color(0xFFD0D0D0),
+                fontSize: height * 0.035,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

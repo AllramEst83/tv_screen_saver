@@ -7,7 +7,7 @@ One Flutter project, two apps built as Gradle product flavors:
 | TV (Sony XR-55X90K, Google TV, Android 12, **32-bit ARM**) | `tv` | `com.codedbykay.tvsaver.tv` | `lib/main_tv.dart` | `android-arm` |
 | Phone (later stories) | `phone` | `com.codedbykay.tvsaver` | not yet | phone ABI |
 
-Phase 1 (story 1-1) builds the TV app only: a full-screen spike that shows and logs the `DisplayReport` (what the app renders vs what the panel shows).
+Phase 1 (story 1-1) builds the TV app only: a full-screen spike that shows and logs the `DisplayReport` (what the app renders vs what the panel shows). Story 1-2 adds a remote-driven video test screen (section 8).
 
 ## 1. Prerequisites
 
@@ -88,4 +88,58 @@ flutter analyze
 flutter test
 ```
 
-Both must pass with no issues.
+Both must pass with no issues. For a video-spike build also run the release build from section 4 (the APK stays under 25 MB).
+
+## 8. Video path spike (story 1-2)
+
+Question: which video path gives full 4K sharpness, HDR pass-through, native frame rate and a gap-free loop with sound on the X90K? Nothing here changes a TV setting: adb only installs the app and pushes clips into the app's own files dir.
+
+### Generate the clips (PC)
+
+```bash
+winget install Gyan.FFmpeg        # once; open a new shell afterwards
+bash tool/video/generate_clips.sh
+```
+
+Without ffmpeg the script prints the winget command and exits 1 without writing anything. It writes five 10 s clips to `build/spike-media/` (git-ignored): `1-sdr-lines` (HEVC Main10 SDR, 1 px line pairs and gradient), `2-hdr10-lines`, `3-hlg-lines`, `4-pan-23976` (23.976 fps pan), `5-loop-audio` (AAC stereo noise bursts at every whole second, one starting exactly at the loop point, and a frame counter). Dolby Vision is not part of this story.
+
+### Push and run
+
+```bash
+# build and install as in sections 4 and 5, then:
+bash tool/video/push_clips.sh 192.168.0.24:5555
+```
+
+`push_clips.sh` reads the free space first (`df`), refuses clips totalling more than 1.5 GB or leaving less than 300 MB spare, pushes to `/sdcard/Android/data/com.codedbykay.tvsaver.tv/files/spike/` and prints the free space before and after. With no clips pushed the spike screen tells you the command.
+
+On the TV, open TV Saver, press **OK** on the report screen to open the **Video spike**. Remote only: Up/Down moves, OK changes a setting row or plays a clip, Back stops (in a clip) or leaves. Rows:
+
+- **View**: `texture` (video_player, Flutter texture), `platform-view` (video_player, `VideoViewType.platformView`), `media3-surface` (native Media3 ExoPlayer on a SurfaceView platform view).
+- **Loop**: `repeat-one` or `two-item-playlist` (two items of the same clip, repeat-all). `video_player` cannot do a playlist, so the playlist loop always uses the Media3 view.
+
+In the texture and platform-view (video_player) modes the logged `decoder=` is the one MediaCodecList predicts; the media3-surface mode reports the decoder actually in use.
+
+An overlay shows clip, mode, display mode, HDR type, decoder and dropped frames (Media3 only; `video_player` does not expose them). OK hides or shows it (hide it before judging the picture). A clip that cannot be decoded shows `cannot play: <reason>`.
+
+### Read the log
+
+```bash
+adb -s 192.168.0.24:5555 logcat -d -s flutter | grep VideoSpike
+```
+
+At startup: `VideoSpike: decoder <name> <mime> hw=... profiles=[...]` for every HEVC, AC-3, E-AC-3 decoder. Per run, 4 s after the clip starts and again when you press Back: `VideoSpike: clip=..., mode=..., loop=..., phase=playing|stopped, decoder=..., hdr=..., display_before=WxH@Hz, display_now=WxH@Hz, dropped=N|n/a[, result=...]`. `phase=failed` carries `note=cannot play: ...`.
+
+### How to judge each clip, and where to record it
+
+Append every finding as a `note` entry in `_bmad-output/specs/spec-tv-screensaver/.memlog.md`, with the matching `VideoSpike:` line.
+
+| Clip | Do | Record |
+| --- | --- | --- |
+| 1 sdr-lines | Play in `texture`, then `platform-view`, then `media3-surface` (overlay hidden, sit close). | Which view shows the 1 px lines and the checkerboard as crisp black/white (not grey, not blurred); the winner of texture vs SurfaceView. |
+| 2 hdr10, 3 hlg | Play each in `platform-view` and `media3-surface`. | `hdr=` in the log, and whether the TV shows its HDR badge or switches picture mode. |
+| 4 pan-23976 | Play once with the TV's "Match content frame rate" off, once on (change it by hand; the app and scripts never do). | `display_before` / `display_now`, `result=24p possible` or `only 60 Hz mode`, and whether the pan judders. The TV reported only 3840x2160@60 in story 1-1, so `only 60 Hz mode` is the expected result. |
+| 5 loop-audio | Play with `repeat-one` in `platform-view`, `repeat-one` in `media3-surface`, then `two-item-playlist`. Watch the frame counter and listen for the noise burst at the loop point (a burst at the start of every second, including the first of each loop). | Per strategy: audible gap or click at the loop, black or repeated frame at the loop; which strategy is gap-free. |
+
+If 24p is impossible or HDR or the loop fail, CAP-2's success text needs a decision from Kay; this story only records the outcome.
+
+Read-only checks that do not need the spike: `tool/tv/display_report.sh` (section 6).

@@ -91,6 +91,13 @@ kotlin {
     }
 }
 
+dependencies {
+    // Media3 is a transitive (implementation) dependency of video_player_android;
+    // the spike's native SurfaceView player needs it on the app compile classpath.
+    // Keep the version in step with video_player_android.
+    implementation("androidx.media3:media3-exoplayer:1.9.2")
+}
+
 flutter {
     source = "../.."
 }
