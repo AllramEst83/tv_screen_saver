@@ -13,12 +13,12 @@ Adapted from Drawing Aid (`../drawing_poc`: `lib/tv/display_report.dart`, `lib/p
 - Play on a hardware `SurfaceView`, not a Flutter texture. Use `video_player` with `VideoViewType.platformView` if the installed version supports it, otherwise a Media3 `PlayerView` embedded as a platform view.
 - Phase 1 test: the same 4K clip with 1 px line pairs in texture vs platform-view mode on the X90K. Record which one shows full detail.
 - **HDR:** HDR10, HLG and Dolby Vision are passed through untouched; the TV switches mode itself. No tone mapping in the app.
-- **Frame rate:** the player requests the content frame rate (Media3 change-frame-rate strategy / `Surface.setFrameRate`), so 23.976/24/25/50 fps play at matching refresh. Requires the TV's "Match content frame rate" setting (`lan-setup.md`).
+- **Frame rate:** the X90K exposes only a 3840×2160 @ 60 Hz display mode (measured in phase 1), so the app cannot match the refresh rate to the content. It plays frames at native timing with Media3's default frame-rate strategy and does no conversion of its own. The TV may still apply its own film-motion handling.
 - Auth: `Authorization: Bearer` via the player's HTTP headers.
 - Recommended files: HEVC Main10, 3840×2160, ≤ 60 fps, HDR10/HLG/Dolby Vision or SDR, 40–80 Mbps, MP4/MKV. On upload or import, the Pi checks with `ffprobe` that codec, profile/level and HDR format are in the TV's `display.capabilities`. If not, the item is rejected with a message telling the user to convert it on the PC. If no display has reported yet, the item is accepted and checked when one does.
 - **Audio:** the video's sound plays by default. The audio track passes through untouched (AAC, AC-3, E-AC-3, Dolby Atmos); `ffprobe` checks the audio codec against `display.capabilities` too.
 - **Seamless loop:** a single looping video (e.g. a fireplace) repeats with no black frame and no audio gap or click at the loop point (Media3 repeat mode, pre-buffered).
-- Gapless playlists: prepare the next item's player before the current one ends, then cut or crossfade.
+- **Loop:** Media3 repeat-one is the loop strategy (no gap heard on the X90K in phase 1). Gapless playlists: prepare the next item's player before the current one ends, then cut or crossfade.
 
 ## Images: upload (phone and inbox)
 
@@ -46,5 +46,5 @@ Adapted from Drawing Aid (`../drawing_poc`: `lib/tv/display_report.dart`, `lib/p
 - Test chart: 4000×3000 with 1 px line pairs and a gradient. After upload, the stored file vs the original resized to the same size has PSNR ≥ 40 dB. A JPEG ≤ 4096 px has pixel data identical to the original, including a rotated one.
 - Colour: a Display P3 test image keeps its ICC profile after upload and shows the same colours on the TV as on the source device.
 - On the TV, the line pairs resolve at 3840×2160 on the panel, with no 8×8 block artefacts in the gradient.
-- Video: HDR10, HLG and Dolby Vision test clips trigger the matching TV HDR badge. A 23.976 fps pan shows no 3:2 judder. A 10-minute fireplace clip looped for 1 h plays its sound with no audible gap or click at the loop point.
+- Video: HDR10, HLG and Dolby Vision test clips trigger the matching TV HDR badge. A 23.976 fps pan shows no objectionable judder by eye. A 10-minute fireplace clip looped for 1 h plays its sound with no audible gap or click at the loop point.
 - 30-minute slideshow of 24 MP photos: within the decode budget, no OOM, no stall.

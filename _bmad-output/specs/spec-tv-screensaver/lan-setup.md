@@ -12,7 +12,7 @@
 
 - **Idle TV standby: Off** (Settings → System → Power and energy). Otherwise the TV switches off after 1–4 h without remote input, even while playing.
 - Picture power saving / Eco: Off.
-- Picture, for accuracy: Picture mode **Custom**, **Motionflow Off**, **Match content frame rate On** (needed for the app's frame-rate matching). HDR modes switch automatically.
+- Picture, for accuracy: Picture mode **Custom**, **Motionflow Off**. HDR modes switch automatically.
 - Screensaver "when to start": the longest value, as a backup. The app holds `wakelock_plus` while playing.
 - The app runs in immersive full-screen and restores the last playlist and position on start.
 - Release keystore from day one, backed up (connection spec).

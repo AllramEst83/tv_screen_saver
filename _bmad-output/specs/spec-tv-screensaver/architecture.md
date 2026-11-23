@@ -17,7 +17,7 @@
           └────────────▲───────────────────────────────▲──────────────────────────┘
                        │ WS JSON + HTTP                 │ WS JSON + HTTP (streaming)
                   Phone(s) ≤ 7                     Sony X90K TV app (1 display)
-                  owner / controller               ├─ player: SurfaceView video (HDR, frame-rate match),
+                  owner / controller               ├─ player: SurfaceView video (HDR, native timing),
                                                    │          image decoder / native 4K image path
                                                    └─ LRU media cache
 ```

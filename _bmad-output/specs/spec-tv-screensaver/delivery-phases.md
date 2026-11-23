@@ -4,7 +4,7 @@ The order is binding: each phase settles a risk the next one depends on.
 
 | # | Phase | Delivers | Settles |
 | --- | --- | --- | --- |
-| 1 | TV spike | A bare TV app: `DisplayReport` reading recorded by Kay (`tool/tv/display_report.sh`), 4K HEVC clip in texture vs platform view compared, HDR10/HLG/Dolby Vision clips and 24p frame-rate match checked, 4K image shown, wakelock held for 8 h with Idle TV standby off | Render resolution, video path, HDR, CAP-1 settings |
+| 1 | TV spike | A bare TV app: `DisplayReport` reading recorded by Kay (`tool/tv/display_report.sh`), 4K HEVC clip in texture vs platform view compared, HDR10/HLG clips, 24p judder and looping audio checked (Dolby Vision deferred), 4K image shown, wakelock held for 8 h with Idle TV standby off | Render resolution, video path, HDR, CAP-1 settings |
 | 2 | Pi basics | Router reservations, the Pi pinned to Floor 1 at 5 GHz, Avahi, an authenticated Dart file server with Range, a systemd unit enabled at boot. The TV plays a hard-coded playlist from the Pi. Sustained Pi → TV throughput measured (TV app downloads a 1 GB test file; Kay runs it), streaming ceiling set. A power-cut test passes | Streaming over the real LAN (CAP-2), unattended recovery (CAP-11) |
 | 3 | Hub on Pi | `hub_core` extracted from drawing_poc, the TV as display client (`display.capabilities`, `player.report`), phone pairing via the QR shown on the TV, owner/controller/display roles, `player` module incl. seek and mute, admin reset CLI | CAP-6, CAP-7 |
 | 4 | Library | Phone image prep and resumable uploads, Pi variants/ffprobe worker, playlists, inbox share, TV LRU cache | CAP-3, CAP-4, CAP-5, CAP-8, CAP-9 |

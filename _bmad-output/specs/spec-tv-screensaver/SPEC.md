@@ -26,8 +26,8 @@ A vision to realize: turn the Sony 4K TV into an always-on display for long-runn
   - **intent:** The TV shows the chosen playlist full-screen indefinitely, without the Google TV screensaver or idle standby interrupting it.
   - **success:** With the TV settings in `lan-setup.md` applied, an 8-hour unattended run plays without the screensaver, Ambient Mode or standby appearing, and with no memory growth trend (hourly samples).
 - **CAP-2**
-  - **intent:** The TV plays 4K and HDR video streamed from the Pi at the panel's full resolution, dynamic range and native frame rate, with the video's own sound.
-  - **success:** A looping fireplace video plays its sound with no gap at the loop point. A 3840×2160 HEVC test clip with 1 px detail plays at full sharpness (side-by-side with the texture path, per `media-fidelity.md`). HDR10, HLG and Dolby Vision clips switch the TV into the matching HDR mode. A 23.976 fps clip plays with the display at 24 Hz (no judder). Seeking to the middle of a 10 GB file starts playback within 3 s.
+  - **intent:** The TV plays 4K and HDR video streamed from the Pi at the panel's full resolution, dynamic range, with the video's own sound at its native frame rate (no conversion).
+  - **success:** A looping fireplace video plays its sound with no gap at the loop point. A 3840×2160 HEVC test clip with 1 px detail plays at full sharpness (side-by-side with the texture path, per `media-fidelity.md`). HDR10, HLG and Dolby Vision clips switch the TV into the matching HDR mode. A 23.976 fps pan clip shows no objectionable judder, checked by eye (the X90K exposes only a 60 Hz mode, so the app cannot switch the refresh rate). Seeking to the middle of a 10 GB file starts playback within 3 s.
 - **CAP-3**
   - **intent:** The TV shows high-resolution images at the panel's full 4K resolution, with their colours intact, without stalls or out-of-memory errors.
   - **success:** The X90K's render vs panel size is recorded by `DisplayReport`. The test chart in `media-fidelity.md` resolves at 3840×2160 on the panel (through the native 4K image path if Flutter renders at 1080p). A Display P3 test image shows the same colours as on the source device. A 30-minute slideshow of 24 MP photos has no OOM or decode stall.
@@ -58,7 +58,7 @@ A vision to realize: turn the Sony 4K TV into an always-on display for long-runn
 
 ## Constraints
 
-- Picture quality wins every trade-off: no re-encode when one can be avoided, no downscale below the panel, no colour-profile loss, no frame-rate conversion (`media-fidelity.md`).
+- Picture quality wins every trade-off: no re-encode when one can be avoided, no downscale below the panel, no colour-profile loss, no frame-rate conversion in the app (`media-fidelity.md`).
 - The Pi is authoritative for the library, playlists, pairings and settings. The TV is authoritative for what is on screen: the current item and position, which the Pi adopts on every reconnect. This replaces "the TV is authoritative" from the connection spec. Every other rule from it applies unless `architecture.md` overrides it.
 - Pairing needs physical presence: the Pi has no screen, so the QR code and PIN only appear on the paired TV.
 - The server code is pure Dart (no Flutter imports), so the same code runs on the Pi as an AOT executable and is shared with the apps.
