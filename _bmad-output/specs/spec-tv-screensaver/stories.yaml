@@ -1,0 +1,195 @@
+# Story Breakdown for SPEC-tv-screensaver — execution order is top to bottom.
+
+- id: "1-1"
+  title: TV spike app with DisplayReport and measurement script
+  description: >-
+    Bare Flutter TV app (com.codedbykay.tvsaver.tv, android-arm) that shows and logs
+    DisplayReport, plus tool/tv/display_report.sh (CAP-3, media-fidelity.md "Measure first").
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Copy DisplayReport from ../drawing_poc/lib/tv/display_report.dart. Pause after the build so
+    Kay can install it and run display_report.sh on the X90K; the reading is logged to the spec memlog.
+
+- id: "1-2"
+  title: Video path spike — SurfaceView, HDR, frame-rate match, looping audio
+  description: >-
+    Compare the 4K 1 px line-pair clip in texture vs platform-view mode and verify HDR10/HLG/Dolby
+    Vision pass-through, 24p frame-rate matching and a gap-free looping fireplace clip with sound
+    (CAP-2, media-fidelity.md "Video").
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Include test media generators under tool/ (ffmpeg on the PC). Play local or adb-pushed files;
+    no Pi yet. Kay judges sharpness, HDR badge, judder and loop gap on the TV.
+
+- id: "1-3"
+  title: Always-on playback — wakelock, immersive mode, 8 h run
+  description: >-
+    Hold wakelock_plus while playing, run immersive full-screen, and document the TV settings
+    that keep the screensaver and standby away (CAP-1, lan-setup.md "TV").
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Kay applies the TV settings and runs the 8 h test; provide an adb meminfo sampling script
+    (hourly) for the memory trend.
+
+- id: "2-1"
+  title: Pi Wi-Fi pinning to Floor 1 with fallback
+  description: >-
+    tool/pi/setup_wifi.sh and the tvsaver-wifi-prefer timer per lan-setup.md "Wi-Fi selection":
+    Floor 1 priority 100 at 5 GHz, Floor 2 fallback, return to Floor 1 within 2 min (CAP-11).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Script must be idempotent and never print PSKs; it reads /home/allramest/.config/tvsaver/.env,
+    which Kay fills in. Kay does the reboot and Floor 1 off/on tests. Pi access: ssh allramest@gemini-pi.local.
+
+- id: "2-2"
+  title: Pi file server with auth and Range, systemd and Avahi
+  description: >-
+    Minimal pure-Dart AOT server on port 8772 with /health, bearer auth and Range/206 media
+    serving, tvsaver.service and the _tvsaver._tcp Avahi file, plus a deploy tool (lan-setup.md, media-server.md).
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Compile with dart compile exe for linux-arm64 (on the Pi or cross); bind 0.0.0.0. Tokens never
+    in URLs. A temporary static token is fine until 3-2 adds pairing.
+
+- id: "2-3"
+  title: TV plays a hard-coded playlist from the Pi; throughput and power-cut tests
+  description: >-
+    The TV app streams a hard-coded playlist from the Pi with bearer headers, includes the 1 GB
+    download throughput test, and the power-cut recovery test is scripted (CAP-2, CAP-11, media-server.md "Streaming ceiling").
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Kay runs the throughput test and the power-cut test; the measured figure and 60 % streaming
+    ceiling are logged to the spec memlog.
+
+- id: "3-1"
+  title: Extract hub_core from drawing_poc
+  description: >-
+    Move protocol, HubServer, clients and test support into packages/hub_core as pure Dart, with
+    bin/pi_server.dart as the Pi entry point (architecture.md "Code layout").
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Copy from ../drawing_poc lib/lan, lib/tv/server, lib/tv/update, test/support; strip Flutter
+    imports; do not depend on drawing_poc. Keep the connection spec's tests passing.
+
+- id: "3-2"
+  title: Roles, pairing relay and recovery
+  description: >-
+    Display device kind, first-display rule, approveDisplay by any phone, owner/controller roles,
+    startPairing → display.pairing relay, remote "Forget all phones", and tvsaver admin reset-pairings
+    (CAP-7, architecture.md "TV as a device" and "Recovery").
+  spec_checkpoint: true
+
+- id: "3-3"
+  title: Phone app skeleton with discovery and QR pairing
+  description: >-
+    Flutter phone app (com.codedbykay.tvsaver) that discovers the Pi (mDNS + last address), pairs
+    by scanning the TV's QR and reconnects after an IP change (CAP-7).
+  spec_checkpoint: true
+
+- id: "3-4"
+  title: Player module and TV display client
+  description: >-
+    player.* requests incl. seek and setMuted, player.position/report, display.capabilities,
+    display.load, and err unavailable with no display; TV and phone controls wired to it (CAP-6, modules.md).
+  spec_checkpoint: true
+
+- id: "4-1"
+  title: Library and resumable uploads
+  description: >-
+    Drift schema, library module, upload routes (POST/PUT/HEAD, sha256 verify, 409/413/422),
+    variant routes and the storage cap (CAP-4, CAP-5, media-server.md).
+  spec_checkpoint: true
+
+- id: "4-2"
+  title: Pi media worker
+  description: >-
+    ffprobe checks against display.capabilities (video, audio, HDR), image variants and posters
+    with libvips/ffmpeg, and the streaming-ceiling accept/reject rules (media-fidelity.md, media-server.md).
+  spec_checkpoint: true
+
+- id: "4-3"
+  title: Phone image prep and upload UI
+  description: >-
+    Image prep per media-fidelity.md (≤ 4096 px, no re-encode for JPEG, ICC and orientation kept,
+    metadata stripped byte-wise) and phone upload UI with resume and duplicate check (CAP-4).
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Adapt ../drawing_poc/lib/phone/images/image_prep.dart; the orientation and ICC rules differ
+    from Drawing Aid's.
+
+- id: "4-4"
+  title: Playlists
+  description: >-
+    playlist module (shuffle, imageSeconds, transition, kenBurns, muted default false) and the
+    phone library/playlist UI, working while the TV is off (CAP-5).
+  spec_checkpoint: true
+
+- id: "4-5"
+  title: PC inbox share
+  description: >-
+    Samba share inbox and the watcher that imports stable files with the same checks as uploads,
+    rejecting to inbox/rejected/ with a reason (CAP-9).
+  spec_checkpoint: true
+
+- id: "4-6"
+  title: TV cache and image pipeline
+  description: >-
+    2.5 GB LRU cache with display.prefetch, and image download/decode/render per
+    media-fidelity.md (variant choice, colour space, decode budget, one decode at a time) (CAP-3, CAP-8).
+  spec_checkpoint: true
+
+- id: "5-1"
+  title: Player polish
+  description: >-
+    Pre-buffered next item, crossfade, optional Ken Burns, seamless single-video loop, and the
+    remote info overlay (CAP-1, CAP-2).
+  spec_checkpoint: true
+
+- id: "5-2"
+  title: Offline playback and resync
+  description: >-
+    TV loops cached items with local remote control when the Pi is down, and the Pi adopts the
+    TV's player.report on reconnect with no visible jump (CAP-8, architecture.md "Offline and resync").
+  spec_checkpoint: true
+
+- id: "5-3"
+  title: Native 4K image path
+  description: >-
+    Show images on a hardware surface at 3840×2160 instead of the Flutter UI plane (CAP-3,
+    media-fidelity.md "Measure first").
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Conditional: read the DisplayReport result from the spec memlog first. If the X90K renders
+    Flutter at full 3840×2160, skip this story and report that.
+
+- id: "5-4"
+  title: 8-hour soak on the X90K
+  description: >-
+    Full-system soak: playlist with 4K HDR video and photos for 8 h, memory sampled hourly, no
+    screensaver/standby, no growth trend (CAP-1, delivery-phases.md "Tests").
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Prepare the soak playlist and sampling script; Kay runs the soak on the TV.
+
+- id: "6-1"
+  title: TV self-update from the Pi
+  description: >-
+    The Pi serves update.json and tv.apk; the TV finds, downloads, sha256-verifies and opens the
+    installer (CAP-10).
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Adapt ../drawing_poc/lib/tv/update; the host is the Pi, not the dev PC. Release keystore from day one.
+
+- id: "7-1"
+  title: 4K still-as-HEVC clip mode (optional)
+  description: >-
+    Optional extra: show a still image as a 4K HEVC clip through the video path (delivery-phases.md phase 7).
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    The Pi does no transcoding, so clips are prepared on the PC (tool script) and imported via the inbox.
