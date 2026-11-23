@@ -1,0 +1,8 @@
+[Unit]
+Description=Return the Pi to Wi-Fi Floor 1 when it is visible again
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/tvsaver/wifi_prefer.sh
+TimeoutStartSec=90

@@ -143,3 +143,32 @@ Append every finding as a `note` entry in `_bmad-output/specs/spec-tv-screensave
 If 24p is impossible or HDR or the loop fail, CAP-2's success text needs a decision from Kay; this story only records the outcome.
 
 Read-only checks that do not need the spike: `tool/tv/display_report.sh` (section 6).
+
+## 9. Pi Wi-Fi pinning (story 2-1)
+
+Pins the Pi to `LightSpeed_Auto_Floor_1` (priority 100, 5 GHz only if safe), keeps Floor 2 as the fallback and installs a timer that returns the Pi to Floor 1 within 2 minutes of it reappearing. Privileged steps run on the Pi by you with `sudo`; the PC side only copies files and reads state.
+
+**Which address to use.** The PC is on Floor 2. Once pinned, the Pi is on Floor 1 and `gemini-pi.local` may not resolve. Use `PI_HOST=<Pi's Floor 1 IP>` (find it in the Floor 1 router's DHCP list; the PC reaches Floor 1 addresses by IP, like the TV). If the Pi seems unreachable it is probably still on Floor 2: try `192.168.1.207`.
+
+```bash
+# PC (Git Bash). PI_HOST defaults to gemini-pi.local; use the IP if it does not resolve.
+PI_HOST=192.168.1.207 bash tool/pi/deploy.sh       # scp only, no sudo
+PI_HOST=192.168.1.207 bash tool/pi/check_wifi.sh   # read-only status, no passwords
+
+# On the Pi (ssh in):
+sudo bash ~/tvsaver/pi/setup_wifi.sh --dry-run     # preview
+sudo bash ~/tvsaver/pi/setup_wifi.sh               # apply; a second run says "no changes"
+```
+
+Good to know:
+- Setup turns autoconnect off on every other Wi-Fi profile. Undo one with `sudo nmcli connection modify <name> connection.autoconnect yes`.
+- Disable the timer with `sudo systemctl disable --now tvsaver-wifi-prefer.timer`.
+- Priority changes apply at the next reconnect, so a Pi that is on Floor 2 stays there until the timer fires (within 60 s) or it reboots.
+- Passwords are optional. To have the script set them, copy `~/.config/tvsaver/.env.example` to `.env`, fill it in and `chmod 600` it. Never commit it.
+
+Offline test of the scripts (fake `nmcli`): `bash tool/pi/test/test_wifi_scripts.sh`.
+
+Reboot tests, after the setup (report each `check_wifi.sh` output):
+1. Floor 2 stronger at the Pi, reboot. Pass: `check_wifi.sh` shows Floor 1 active (5 GHz if it was eligible). Fail: Floor 2 active.
+2. Floor 1 Wi-Fi off, reboot. Pass: `check_wifi.sh` shows Floor 2 active. Fail: no Wi-Fi.
+3. Turn Floor 1 back on. Pass: Floor 1 active within 2 minutes (`journalctl -u tvsaver-wifi-prefer -n 5` shows the switch). Fail: still Floor 2 after 2 minutes.

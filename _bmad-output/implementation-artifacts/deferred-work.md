@@ -7,3 +7,9 @@
 - source_spec: `_bmad-output/specs/spec-tv-screensaver/stories/1-2-video-path-spike.md`
   summary: Add automated tests for the Kotlin `VideoSpike.kt` helpers (`hdrName`, `hevcProfileName`, `probe`) and for `tool/video/*.sh` (fake adb/ffmpeg harness).
   evidence: Review triage #10 — these paths need a device or ffmpeg; today they are verified only by the manual runbook and the 2026-11-23 real runs.
+- source_spec: `_bmad-output/implementation-artifacts/soak-run-design.md`
+  summary: Build the always-on soak tooling (in-app CSV recorder, soak_sample.sh, soak_report.sh with pass thresholds) as part of story 5-4; keep wakelock/immersive in 5-1.
+  evidence: Kay decided on 2026-11-23 that enough on-TV testing was done in phase 1 and asked to move on to building the app; the 8 h run and the TV settings checklist move to 5-4.
+- source_spec: `_bmad-output/specs/spec-tv-screensaver/stories/2-1-pi-wifi-pinning.md`
+  summary: Run `tool/pi/test/test_wifi_scripts.sh` automatically (pre-commit/CI wrapper) instead of by hand.
+  evidence: Review triage #10 — nothing in the repo invokes the Pi script tests; same gap as the shell scripts from story 1-2.

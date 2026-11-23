@@ -1,0 +1,11 @@
+[Unit]
+Description=Check every minute whether Wi-Fi Floor 1 is back
+
+[Timer]
+OnBootSec=60s
+OnUnitActiveSec=60s
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

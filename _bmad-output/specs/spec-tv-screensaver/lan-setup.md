@@ -45,17 +45,17 @@
 
 Starting point on the Pi: both profiles saved with `autoconnect yes` and priority `0`, so NetworkManager can pick either. Target:
 
-- `LightSpeed_Auto_Floor_1`: `connection.autoconnect-priority 100`, `connection.autoconnect-retries 0` (retry forever), `802-11-wireless.band a` (5 GHz).
+- `LightSpeed_Auto_Floor_1`: `connection.autoconnect-priority 100`, `connection.autoconnect-retries 0` (retry forever). `802-11-wireless.band a` (5 GHz) is set only if the setup scan sees a 5 GHz BSS of Floor 1 with signal >= 40; otherwise the band stays unset and the script warns, so the lock can never strand the Pi.
 - `LightSpeed_Auto_Floor_2`: `connection.autoconnect-priority 10`, the fallback when Floor 1 isn't in range at boot.
 - Every other Wi-Fi profile: `connection.autoconnect no`.
 - **Return to Floor 1:** NetworkManager doesn't re-check priorities while connected. A systemd timer (`tvsaver-wifi-prefer.timer`, every 60 s) does this: if the active profile is Floor 2 and `nmcli dev wifi list --rescan yes` shows Floor 1, run `nmcli con up LightSpeed_Auto_Floor_1`. If that fails, NetworkManager falls back to Floor 2 on its own.
-- **Passwords:** you put them in `/home/allramest/.config/tvsaver/.env` (`chmod 600`, never committed):
+- **Passwords (optional):** if you want the script to set them, put them in `/home/allramest/.config/tvsaver/.env` (`chmod 600`, never committed):
   ```
   WIFI_FLOOR1_SSID=LightSpeed_Auto_Floor_1
   WIFI_FLOOR1_PSK=...
   WIFI_FLOOR2_SSID=LightSpeed_Auto_Floor_2
   WIFI_FLOOR2_PSK=...
   ```
-  A setup script (`tool/pi/setup_wifi.sh`) reads it and sets `wifi-sec.psk`, the priorities and the timer. It's idempotent and never prints the PSKs.
+  Without the file, or with an empty PSK, the saved profile password is left untouched. The setup script (`tool/pi/setup_wifi.sh`, run as `sudo bash`, `--dry-run` to preview) sets the priorities, the conditional band lock, optional PSKs and the timer. It's idempotent and never prints the PSKs. The timer runs `/usr/local/lib/tvsaver/wifi_prefer.sh` (root-owned copy) under `flock`, and acts only when Floor 2 is active and a rescan shows Floor 1.
 - Check: reboot, then `nmcli -t -f NAME,DEVICE connection show --active` shows Floor 1. Turn off Floor 1 Wi-Fi and reboot → Floor 2. Turn Floor 1 back on → back on Floor 1 within 2 minutes.
 - Tools: `ffmpeg`/`ffprobe`, `libvips-tools`, `libsqlite3`.
