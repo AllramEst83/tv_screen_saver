@@ -13,3 +13,6 @@
 - source_spec: `_bmad-output/specs/spec-tv-screensaver/stories/2-1-pi-wifi-pinning.md`
   summary: Run `tool/pi/test/test_wifi_scripts.sh` automatically (pre-commit/CI wrapper) instead of by hand.
   evidence: Review triage #10 — nothing in the repo invokes the Pi script tests; same gap as the shell scripts from story 1-2.
+- source_spec: `_bmad-output/specs/spec-tv-screensaver/stories/2-2-pi-file-server.md`
+  summary: Make the traversal test strict (assert 400 for `%2e%2e`) and add a fake-systemctl harness test for `tool/pi/install_server.sh` idempotence and `--dry-run`.
+  evidence: Review triage #13 and #14 — the explicit `..` guard is unobserved by tests and the install script is verified only by the manual real-Pi run.

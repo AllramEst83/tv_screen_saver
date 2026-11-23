@@ -172,3 +172,32 @@ Reboot tests, after the setup (report each `check_wifi.sh` output):
 1. Floor 2 stronger at the Pi, reboot. Pass: `check_wifi.sh` shows Floor 1 active (5 GHz if it was eligible). Fail: Floor 2 active.
 2. Floor 1 Wi-Fi off, reboot. Pass: `check_wifi.sh` shows Floor 2 active. Fail: no Wi-Fi.
 3. Turn Floor 1 back on. Pass: Floor 1 active within 2 minutes (`journalctl -u tvsaver-wifi-prefer -n 5` shows the switch). Fail: still Floor 2 after 2 minutes.
+
+## 10. Pi file server (story 2-2)
+
+A pure-Dart HTTP server (`packages/hub_core`, entry `bin/pi_server.dart`) on port 8772: `GET /health` (no auth) and `GET|HEAD /media/<id>/full` with `Range`/`206`, bearer token required. Media lives in `~/tvsaver/media/<id>` on the Pi. Multi-range requests are ignored (full `200`). Traffic — including the `Authorization: Bearer` header — is **plain HTTP on the home LAN** (no TLS by design); never expose port 8772 outside the LAN.
+
+The bearer token is temporary (until pairing, story 3-2): the first run creates `~/.config/tvsaver/token` (random 32-byte hex, mode `0600`; override with `TVSAVER_TOKEN_FILE`). Other overrides: `TVSAVER_MEDIA_DIR`, `TVSAVER_PORT`, `TVSAVER_ID`.
+
+```bash
+# PC (Git Bash). Use the Pi's reachable address in PI_HOST (Floor 1 IP while the PC is on Floor 1).
+(cd packages/hub_core && dart analyze && dart test)
+PI_HOST=<pi-ip> bash tool/pi/deploy_server.sh   # cross-compile linux-arm64, scp, atomic mv, restart via pkill (no sudo)
+
+# On the Pi, once (Kay):
+sudo bash ~/tvsaver/pi/install_server.sh --dry-run
+sudo bash ~/tvsaver/pi/install_server.sh        # tvsaver.service + Avahi _tvsaver._tcp; idempotent
+
+# PC, after the server runs:
+PI_HOST=<pi-ip> bash tool/pi/smoke_test.sh      # real-Pi checks; makes and removes smoke-* files in ~/tvsaver/media
+```
+
+Good to know:
+- **Read the token** (on the Pi): `cat ~/.config/tvsaver/token`. Never commit it or pass it in URLs.
+- **Rotate the token** (on the Pi): `rm ~/.config/tvsaver/token && pkill -x dart:tvsaver` (systemd relaunches within ~5 s and generates a fresh `0600` token).
+- **Later deploys & rollback**: run `deploy_server.sh` again; it saves the previous binary as `~/tvsaver/bin/tvsaver.prev`, signals the running server so systemd relaunches within ~5 s, and polls `/health` for up to 15 s. To roll back on the Pi: `mv -f ~/tvsaver/bin/tvsaver.prev ~/tvsaver/bin/tvsaver && pkill -x dart:tvsaver`.
+
+Reboot test (after the first install):
+- Reboot the Pi (`sudo reboot`).
+- **Pass:** within 2 minutes, `curl http://<pi-ip>:8772/health` returns `200` with `"ok":true`, `systemctl is-active tvsaver` prints `active`, and `avahi-browse -rt _tvsaver._tcp` lists `TV Saver on gemini-pi` on port 8772.
+- **Fail:** `/health` does not answer within 2 minutes, `tvsaver` is inactive/failed (`journalctl -u tvsaver -n 30`), or `_tvsaver._tcp` is missing from `avahi-browse`.

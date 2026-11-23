@@ -65,7 +65,7 @@ Unchanged: framing, handshake, requests/`rid`/`op`, revisioned events + `sync`, 
 
 ```
 packages/hub_core/   pure Dart: protocol, HubServer, modules, drift schema, clients
-bin/pi_server.dart   Pi entry point → dart compile exe (linux-arm64), also the admin CLI
+  bin/pi_server.dart Pi entry point → dart compile exe (linux-arm64), also the admin CLI
 lib/main_phone.dart  Flutter phone app (com.codedbykay.tvsaver)
 lib/main_tv.dart     Flutter TV app (com.codedbykay.tvsaver.tv, android-arm, 32-bit)
 tool/                deploy to Pi, test media generators, tv/display_report.sh

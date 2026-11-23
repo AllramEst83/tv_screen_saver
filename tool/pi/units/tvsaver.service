@@ -1,0 +1,14 @@
+[Unit]
+Description=TV Saver Pi server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=allramest
+ExecStart=/home/allramest/tvsaver/bin/tvsaver
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
