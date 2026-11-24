@@ -1,6 +1,11 @@
 package com.codedbykay.tvsaver
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
+import android.provider.Settings
 import android.view.Display
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -20,6 +25,43 @@ class MainActivity : FlutterActivity() {
             .registerViewFactory("tvsaver/media3view", spike.factory())
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tvsaver/video")
             .setMethodCallHandler(spike::onMethodCall)
+
+        // Phone app: reference-counted Wi-Fi multicast lock for mDNS, and a
+        // shortcut to this app's settings page (camera permission).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tvsaver/multicast")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "acquire" -> {
+                        try {
+                            multicastLock().acquire()
+                            result.success(null)
+                        } catch (e: Exception) {
+                            result.error("multicast", e.message, null)
+                        }
+                    }
+                    "release" -> {
+                        try {
+                            val lock = multicastLock()
+                            if (lock.isHeld) lock.release()
+                            result.success(null)
+                        } catch (e: Exception) {
+                            result.error("multicast", e.message, null)
+                        }
+                    }
+                    "openSettings" -> {
+                        try {
+                            startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                    .setData(Uri.fromParts("package", packageName, null))
+                            )
+                            result.success(null)
+                        } catch (e: Exception) {
+                            result.error("settings", e.message, null)
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tvsaver/display")
             .setMethodCallHandler { call, result ->
@@ -45,7 +87,19 @@ class MainActivity : FlutterActivity() {
             }
     }
 
+    private var multicast: WifiManager.MulticastLock? = null
+
+    private fun multicastLock(): WifiManager.MulticastLock {
+        multicast?.let { return it }
+        val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        return wifi.createMulticastLock("tvsaver-mdns").also {
+            it.setReferenceCounted(true)
+            multicast = it
+        }
+    }
+
     override fun onDestroy() {
+        multicast?.let { while (it.isHeld) it.release() }
         videoSpike?.dispose()
         super.onDestroy()
     }

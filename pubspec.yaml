@@ -9,6 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_secure_storage: ^10.0.0
+  hub_core:
+    path: packages/hub_core
+  mobile_scanner: ^7.0.0
   package_info_plus: ^10.2.2
   video_player: ^2.11.1
 

@@ -1,6 +1,9 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- TV flavor (com.codedbykay.tvsaver.tv): Google TV home row entry. Merged into
          src/main/AndroidManifest.xml. -->
+    <!-- The phone-only QR scanner plugin adds CAMERA; the TV never scans. -->
+    <uses-permission android:name="android.permission.CAMERA" tools:node="remove"/>
     <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
     <uses-feature android:name="android.software.leanback" android:required="false"/>
 

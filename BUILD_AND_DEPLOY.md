@@ -5,7 +5,7 @@ One Flutter project, two apps built as Gradle product flavors:
 | App | Flavor | Application id | Entry point | Target |
 | --- | --- | --- | --- | --- |
 | TV (Sony XR-55X90K, Google TV, Android 12, **32-bit ARM**) | `tv` | `com.codedbykay.tvsaver.tv` | `lib/main_tv.dart` | `android-arm` |
-| Phone (later stories) | `phone` | `com.codedbykay.tvsaver` | not yet | phone ABI |
+| Phone | `phone` | `com.codedbykay.tvsaver` | `lib/main_phone.dart` | phone ABI (section 12) |
 
 Phase 1 (story 1-1) builds the TV app only: a full-screen spike that shows and logs the `DisplayReport` (what the app renders vs what the panel shows). Story 1-2 adds a remote-driven video test screen (section 8).
 
@@ -259,3 +259,50 @@ Follow the prompts to pull and restore Pi power. Pass criteria:
 - TV displays `Reconnecting…` during the outage and auto-resumes playback when the Pi returns (`PiStream: disconnected` / `reconnected`).
 - `/health` answers `200` within 120 s of power restore.
 - Pi rejoins `LightSpeed_Auto_Floor_1` (not Floor 2), `tvsaver.service` is `active`, and `avahi-browse -rt _tvsaver._tcp` lists port 8772.
+
+## 12. Phone app and pairing with the fake display (story 3-3)
+
+The phone app finds the Pi, pairs by QR code (PIN as fallback), reconnects on its own and shows its role and the paired devices. Android only.
+
+### Build and install
+
+```bash
+flutter build apk --debug --flavor phone -t lib/main_phone.dart
+adb devices                       # the phone, USB debugging on
+adb -s <phone-serial> install -r build/app/outputs/flutter-apk/app-phone-debug.apk
+```
+
+For a release build: `flutter build apk --release --flavor phone -t lib/main_phone.dart` (all phone ABIs; signed like the TV app).
+
+The phone must be on the same Wi-Fi as the Pi (Floor 1, see `NETWORK_SETUP.md`). It asks for the camera on the first scan. If you denied it, the scan screen has an "Open settings" button.
+
+### Pair without the TV app: fake display
+
+The TV app has no pairing screen yet. `fake_display.dart` stands in for the TV: it connects to the Pi as a display, opens a pairing session and prints the `tvsaver://pair?...` URI, an ASCII QR code and the PIN. It reprints on every rotation (and after each pairing).
+
+```bash
+cd packages/hub_core
+dart run tool/fake_display.dart                    # gemini-pi.local:8772
+dart run tool/fake_display.dart 192.168.0.43:8772  # explicit address
+```
+
+The display token is kept in `.fake_display_token` (current directory, git-ignored) so a second run reconnects as the same display. Delete it to join as a new display, which a Pi with a paired display refuses unless a phone approves. Ctrl+C closes the pairing session.
+
+Use a dark terminal with a large enough window; the QR is drawn with half blocks. On the phone: Scan QR, point at the terminal. The first phone becomes `owner`. If the code was used or expired, the phone asks for the PIN printed under the QR; 3 wrong tries lock pairing for a while.
+
+### Check reconnect
+
+1. Close the phone app and open it again: it goes straight to the connected screen (no scan).
+2. Restart the Pi (`sudo systemctl restart tvsaver`): the phone shows "TV not found" or looks for the Pi, then returns by itself.
+3. "Forget this Pi" on the phone removes only the pairing on the phone. The Pi still lists the device until the owner or the TV forgets it.
+
+### TV APK size gate
+
+The phone plugins (`mobile_scanner` with bundled ML Kit, `flutter_secure_storage`) are in the shared `pubspec.yaml`, so they ship in the TV APK too. Measure after any dependency change:
+
+```bash
+flutter build apk --release --flavor tv -t lib/main_tv.dart --target-platform android-arm
+ls -l build/app/outputs/flutter-apk/app-tv-release.apk
+```
+
+Story 3-3: 13,784,172 bytes before, 19,409,444 after (+5.4 MiB, limit +8 MB).

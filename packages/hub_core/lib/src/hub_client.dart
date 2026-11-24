@@ -22,6 +22,8 @@ abstract final class HubMessages {
       'The TV app is older than this app. On the TV, open the drawer and '
       'choose "Check for updates".';
   static const revoked = 'This TV no longer knows this phone. Pair again.';
+  static const pairingNotOpen = 'Start pairing on the TV, then scan again.';
+  static const pairingOff = 'Pairing is turned off on the TV.';
   static const notConnected = 'Not connected to the TV';
   static const connectionLost = 'The connection was lost';
 
@@ -838,6 +840,37 @@ class HubClient {
         phase: HubConnectionPhase.needsTvUpdate,
         lastError: HubMessages.upgradeTv,
       );
+    } else if (rid == null &&
+        (code == HubErrorCode.unavailable || code == HubErrorCode.forbidden) &&
+        state.value.phase != HubConnectionPhase.connected) {
+      // The hub refused the handshake and closes the socket. A saved token
+      // that gets `unavailable` is unknown to the hub (forgotten phone); a
+      // phone without one met a closed pairing session.
+      _terminal = true;
+      if (_sentToken) {
+        _sentToken = false;
+        _pendingToken = null;
+        final hubId = _expectedHubId ?? state.value.hubId;
+        if (hubId != null) {
+          unawaited(() async {
+            try {
+              await tokenStore.removePairing(hubId);
+            } catch (_) {}
+          }());
+        }
+        state.value = state.value.copyWith(
+          phase: HubConnectionPhase.disconnected,
+          knownPairing: false,
+          lastError: HubMessages.revoked,
+        );
+      } else {
+        state.value = state.value.copyWith(
+          phase: HubConnectionPhase.disconnected,
+          lastError: code == HubErrorCode.forbidden
+              ? HubMessages.pairingOff
+              : HubMessages.pairingNotOpen,
+        );
+      }
     } else if (code == HubErrorCode.conflict) {
       _terminal = true;
       state.value = state.value.copyWith(
