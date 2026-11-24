@@ -485,6 +485,30 @@ class PhoneController extends ChangeNotifier {
     }
   }
 
+  /// Deletes a picture or video from the Pi (owner only): the file, its
+  /// variants and its place in every playlist. It goes from the list when the
+  /// Pi says `library.removed`.
+  Future<ChangeResult> deleteLibraryItem(String id) async {
+    try {
+      await client.request('library.delete', {'id': id});
+      _items.remove(id);
+      _itemNames.remove(id);
+      _itemDurations.remove(id);
+      if (!_disposed) notifyListeners();
+      return const ChangeResult.ok();
+    } on HubError catch (e) {
+      return ChangeResult.failed(
+        e.code == HubErrorCode.forbidden
+            ? 'Only the owner can delete from the library'
+            : e.code == HubErrorCode.notFound
+            ? 'It was already gone'
+            : (e.message ?? 'It could not be deleted'),
+      );
+    } catch (_) {
+      return const ChangeResult.failed(_unreachable);
+    }
+  }
+
   /// Deletes a playlist (owner only); the pictures stay in the library.
   Future<ChangeResult> deletePlaylist(String id) async {
     try {

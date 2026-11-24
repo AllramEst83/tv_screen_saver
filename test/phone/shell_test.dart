@@ -576,7 +576,7 @@ void main() {
       await pump(tester);
       await open(tester, 'nav-library');
       expect(find.text('Fireplace'), findsOneWidget);
-      expect(find.textContaining('Video'), findsOneWidget);
+      expect(find.text('Video · 5 KB'), findsOneWidget);
       expect(find.text('5 KB of 10 KB used'), findsOneWidget);
       expect(find.byKey(const Key('add-photos')), findsOneWidget);
       await finish(tester);
@@ -660,6 +660,55 @@ void main() {
       );
       await pump(tester);
       expect(find.textContaining('No playlists yet'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('Library: the owner deletes an item after a confirm', (
+      tester,
+    ) async {
+      tall(tester);
+      rig = (await tester.runAsync(
+        () => Rig.start(withSettings: true, withLibrary: true),
+      ))!;
+      await tester.runAsync(() async {
+        for (final n in ['One', 'Two']) {
+          await rig.db.insertLibraryItem(
+            LibraryItemsCompanion.insert(
+              id: '$n.jpg',
+              kind: 'image',
+              name: n,
+              sha256: n.padRight(64, '0'),
+              bytes: 100,
+              createdAt: DateTime.now().millisecondsSinceEpoch,
+            ),
+          );
+        }
+      });
+      await connect(tester, phone);
+      await tester.runAsync(() => until(() => phone.controller.hasLibrary));
+      await pump(tester);
+      await open(tester, 'nav-library');
+      expect(find.text('One'), findsOneWidget);
+      expect(find.text('Two'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('delete-item-One.jpg')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('This cannot be undone'), findsOneWidget);
+      // Keeping it changes nothing.
+      await tester.tap(find.text('Keep it'));
+      await tester.pumpAndSettle();
+      expect(find.text('One'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('delete-item-One.jpg')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm-delete-item')));
+      await tester.runAsync(
+        () => until(() => phone.controller.libraryItems.length == 1),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('One'), findsNothing);
+      expect(find.text('Two'), findsOneWidget);
+      expect((await tester.runAsync(() => rig.library!.items()))!.length, 1);
       await finish(tester);
     });
 

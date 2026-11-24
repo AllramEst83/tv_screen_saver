@@ -184,4 +184,57 @@ void main() {
     await up.whenIdle();
     expect(item.error, 'This phone is no longer paired');
   });
+
+  test('a video is sent from its file in chunks, as it is', () async {
+    final bytes = List.generate(45000, (i) => (i * 7 + 3) % 251);
+    final file = File('${tmp.path}/clip.mp4')..writeAsBytesSync(bytes);
+    var puts = 0;
+    final up = make(
+      chunk: 10000,
+      opener: (m, p, {headers = const {}}) {
+        if (m == 'PUT') puts++;
+        return open(m, p, headers: headers);
+      },
+    );
+    final item = up.add([FileUploadSource(file)]).single;
+    await up.whenIdle();
+    expect(item.status, UploadStatus.done, reason: '${item.error}');
+    expect(puts, 5); // 45000 bytes in pieces of 10000
+    final sha = sha256.convert(bytes).toString();
+    final stored = (await server.library.itemBySha(sha))!;
+    expect(stored.kind, 'video');
+    expect(stored.name, 'clip.mp4');
+    expect(
+      File('${server.config.mediaDir}/${stored.id}').readAsBytesSync(),
+      bytes,
+    );
+  });
+
+  test('the same video again is already there', () async {
+    final file = File('${tmp.path}/a.mov')
+      ..writeAsBytesSync(List.filled(3000, 9));
+    final up = make();
+    up.add([FileUploadSource(file)]);
+    await up.whenIdle();
+    final again = up.add([FileUploadSource(file)]).single;
+    await up.whenIdle();
+    expect(again.alreadyThere, isTrue);
+  });
+
+  test('a video that cannot be read says so', () async {
+    final up = make();
+    final item = up.add([
+      FileUploadSource(File('${tmp.path}/missing.mp4')),
+    ]).single;
+    await up.whenIdle();
+    expect(item.status, UploadStatus.failed);
+    expect(item.error, 'That video cannot be read');
+  });
+
+  test('video types and the words for a heavy video', () {
+    expect(videoMimeOf('Holiday.MP4'), 'video/mp4');
+    expect(videoMimeOf('x.mkv'), 'video/x-matroska');
+    expect(videoMimeOf('photo.jpg'), isNull);
+    expect(videoMimeOf('noext'), isNull);
+  });
 }

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -5,28 +6,33 @@ import 'package:image_picker/image_picker.dart';
 
 import '../phone_controller.dart';
 import '../upload/uploader.dart';
+import 'devices_screen.dart' show showBrief;
 import 'ui.dart';
 
-/// Lets the user choose pictures to add. Returns none when cancelled.
+/// Lets the user choose photos and videos to add. Returns none when
+/// cancelled.
 typedef PickPictures = Future<List<UploadSource>> Function();
 
 /// Opens the system picker and hands back the original files (no resizing,
 /// no re-compression: the phone prepares them itself).
 Future<List<UploadSource>> pickPicturesFromGallery() async {
-  final files = await ImagePicker().pickMultiImage();
+  final files = await ImagePicker().pickMultipleMedia();
   return [for (final f in files) _PickedSource(f)];
 }
 
 class _PickedSource extends UploadSource {
-  _PickedSource(this.file);
+  _PickedSource(this.picked);
 
-  final XFile file;
-
-  @override
-  String get name => file.name;
+  final XFile picked;
 
   @override
-  Future<Uint8List> read() => file.readAsBytes();
+  String get name => picked.name;
+
+  @override
+  Future<Uint8List> read() => picked.readAsBytes();
+
+  @override
+  File get file => File(picked.path);
 }
 
 /// What is stored on the Pi, the storage bar and the upload queue.
@@ -42,6 +48,34 @@ class LibraryScreen extends StatelessWidget {
     controller.uploader.add(sources);
   }
 
+  Future<void> _delete(BuildContext context, Map<String, Object?> item) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete "${item['name']}"?'),
+        content: const Text(
+          'It is removed from the Pi and from every playlist. This cannot '
+          'be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep it'),
+          ),
+          FilledButton(
+            key: const Key('confirm-delete-item'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (yes != true || !context.mounted) return;
+    final r = await controller.deleteLibraryItem('${item['id']}');
+    if (!context.mounted) return;
+    showBrief(context, r.ok ? 'Deleted' : r.message!);
+  }
+
   @override
   Widget build(BuildContext context) {
     final uploader = controller.uploader;
@@ -54,11 +88,12 @@ class LibraryScreen extends StatelessWidget {
         return PageList(
           children: [
             PaneCard(
-              title: 'Add pictures',
+              title: 'Add to the library',
               icon: Icons.add_photo_alternate_outlined,
               intro:
-                  'Pictures are made ready on this phone and sent to the Pi. '
-                  'Where a photo was taken is never sent.',
+                  'Photos are made ready on this phone and sent to the Pi: '
+                  'where a photo was taken is never sent. Videos are sent '
+                  'as they are.',
               children: [
                 const SizedBox(height: 4),
                 SizedBox(
@@ -70,14 +105,14 @@ class LibraryScreen extends StatelessWidget {
                     ),
                     onPressed: canAdd ? () => _add(context) : null,
                     icon: const Icon(Icons.add_photo_alternate),
-                    label: const Text('Add photos'),
+                    label: const Text('Add photos or videos'),
                   ),
                 ),
                 if (!canAdd)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
-                      'Connect to the Pi to add pictures.',
+                      'Connect to the Pi to add photos and videos.',
                       style: theme.textTheme.bodyMedium,
                     ),
                   ),
@@ -115,12 +150,17 @@ class LibraryScreen extends StatelessWidget {
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 12),
                     child: Text(
-                      'Nothing here yet. Tap Add photos to send your first '
-                      'picture.',
+                      'Nothing here yet. Tap Add photos or videos to send '
+                      'your first one.',
                     ),
                   )
                 else
-                  for (final item in items) _ItemRow(item: item),
+                  for (final item in items)
+                    _ItemRow(
+                      item: item,
+                      canDelete: controller.isOwner && controller.isLinked,
+                      onDelete: () => _delete(context, item),
+                    ),
               ],
             ),
           ],
@@ -237,9 +277,15 @@ class _UploadRow extends StatelessWidget {
 }
 
 class _ItemRow extends StatelessWidget {
-  const _ItemRow({required this.item});
+  const _ItemRow({
+    required this.item,
+    required this.canDelete,
+    required this.onDelete,
+  });
 
   final Map<String, Object?> item;
+  final bool canDelete;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -285,6 +331,14 @@ class _ItemRow extends StatelessWidget {
               ),
             ),
           ),
+          if (canDelete)
+            IconButton(
+              key: Key('delete-item-${item['id']}'),
+              tooltip: 'Delete',
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              onPressed: onDelete,
+              icon: const Icon(Icons.delete_outline),
+            ),
         ],
       ),
     );
