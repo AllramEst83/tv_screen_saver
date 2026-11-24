@@ -25,12 +25,14 @@ class ServerConfig {
     return ServerConfig(
       mediaDir: e['TVSAVER_MEDIA_DIR'] ?? '$home/tvsaver/media',
       tokenFile: e['TVSAVER_TOKEN_FILE'] ?? '$home/.config/tvsaver/token',
-      dbFile: e['TVSAVER_DB_FILE'] ?? '$home/tvsaver/hub.db',
+      dbFile: _nonEmpty(e['TVSAVER_DB_FILE']) ?? '$home/tvsaver/hub.db',
       port: int.tryParse(e['TVSAVER_PORT'] ?? '') ?? 8772,
       serverId: e['TVSAVER_ID'] ?? Platform.localHostname,
     );
   }
 }
+
+String? _nonEmpty(String? v) => (v == null || v.isEmpty) ? null : v;
 
 /// Reads the temporary bearer token, creating the file (mode 0600, random 32
 /// bytes as hex) when missing. Never logs the token.

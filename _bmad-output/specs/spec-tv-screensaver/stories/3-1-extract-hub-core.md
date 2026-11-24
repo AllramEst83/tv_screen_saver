@@ -2,7 +2,7 @@
 title: 'Extract hub_core from drawing_poc'
 type: 'refactor'
 created: '2026-11-24'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '47ae7e07cd8c450b11d63244bc6f8c12098736ea'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -56,13 +56,13 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `packages/hub_core/pubspec.yaml` -- add dependencies; `dart pub get` -- Flutter-free package
-- [ ] `packages/hub_core/lib/src/{protocol,clock_offset,hub_scanner,hub_client,token_store,advertiser}.dart` -- copy and strip Flutter
-- [ ] `packages/hub_core/lib/src/server/{hub_server,hub_module,devices_module}.dart`, `tv_store.dart`, `update_manifest.dart` -- copy and strip Flutter
-- [ ] `packages/hub_core/lib/src/db/hub_database.dart` (+ generated `.g.dart`) -- Devices/Pairings only, file-backed open
-- [ ] `packages/hub_core/lib/src/server.dart`, `lib/hub_core.dart`, `bin/pi_server.dart` -- mount 2-2 routes on `HubServer`; export public API
-- [ ] `packages/hub_core/test/**` -- port support harness and hub-level tests to `package:test`
-- [ ] `BUILD_AND_DEPLOY.md` -- update Pi server notes
+- [x] `packages/hub_core/pubspec.yaml` -- add dependencies; `dart pub get` -- Flutter-free package
+- [x] `packages/hub_core/lib/src/{protocol,clock_offset,hub_scanner,hub_client,token_store,advertiser}.dart` -- copy and strip Flutter
+- [x] `packages/hub_core/lib/src/server/{hub_server,hub_module,devices_module}.dart`, `tv_store.dart`, `update_manifest.dart` -- copy and strip Flutter
+- [x] `packages/hub_core/lib/src/db/hub_database.dart` (+ generated `.g.dart`) -- Devices/Pairings only, file-backed open
+- [x] `packages/hub_core/lib/src/server.dart`, `lib/hub_core.dart`, `bin/pi_server.dart` -- mount 2-2 routes on `HubServer`; export public API
+- [x] `packages/hub_core/test/**` -- port support harness and hub-level tests to `package:test`
+- [x] `BUILD_AND_DEPLOY.md` -- update Pi server notes
 
 **Acceptance Criteria:**
 - Given the package, when `dart analyze` and `dart test` run in `packages/hub_core`, then both pass with no Flutter import anywhere (`grep -r "package:flutter" packages/hub_core` is empty).
@@ -72,9 +72,29 @@ context:
 
 ## Implementation Notes
 
+- SDK constraint raised to ^3.8.0 (null-aware elements). Pi needs system libsqlite3. QR scheme `drawaid://`, service `_drawaid._tcp`, default hub port 8771 left unchanged (wire protocol). Pi registers no DevicesModule or pairing session yet (3-2). Review patches: PiServer/db/config tests, constantTimeEquals restored, startup error handling, hub.db 0600, doc reworded.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+| Finding | Verdict | Route | Evidence |
+| --- | --- | --- | --- |
+| No test of PiServer on HubServer (`/ws` + `/media` one port, `/health` clients) | medium | patch | Grep: PiServer only in server_test.dart, HTTP-only; matrix row "Media with static token" and AC 3 rest on it |
+| `dbFile` / `TVSAVER_DB_FILE` untested; empty env value gives bad path | low | patch | No test hit; `??` keeps empty string |
+| `HubDatabase.open` file round-trip and busy-port (`strictPort`) untested | medium | patch | No test uses file DB or strictPort; matrix row "Port busy" |
+| `constantTimeEquals` now returns early on length mismatch (old 2-2 folded length) | low | patch | Verified in hub_database.dart:15; direct restore |
+| pi_server.dart: db open / missing libsqlite3 gives raw stack trace; `dbFile!`; double-signal shutdown; `PiServer.port`/`stop` before start | medium | patch | Verified in bin/pi_server.dart and server.dart (`late final hub`) |
+| `hub.db` created with default umask (token file is 0600) | low | patch | HubDatabase.open only creates dir/file |
+| BUILD_AND_DEPLOY says pairing/devices/roles work on Pi; PiServer registers no DevicesModule and no pairing session | medium | patch (doc) | server.dart start() never registers modules; 3-2 owns this; reword doc, note MemoryTvStore |
+| Unauthenticated `/ws` sockets uncapped | medium | defer | Same in drawing_poc hub_server; newly exposed on Pi LAN |
+| HubServer stop twice, handler throw after headers, non-transactional issue, owner re-election, token cache TTL, hello double version, wrong pairCode not counted, dangling pairing | low-medium | defer | Copied drawing_poc behaviour, not caused by this change |
+| HubClient: socket close mid-handshake no retry, polling not using `_now`, IPv6 literal URI, Observable dispose | low | defer | Copied drawing_poc behaviour |
+| Protocol version comments v1 vs 2; `/health` v=1 vs hub v=2 | low | reject | Matches drawing_poc and 2-2 contract; comment-only, fix needs a decision |
+| `verifyRawToken` scans all rows; double `clear()`/`removeWhere`; `deleteDevice` comment | low | reject | At most 8 devices; cosmetic, no named harm |
+| `handle` always true makes built-in `/health`/404 dead | false | reject | Intentional and documented: keeps 2-2 401/404 behaviour |
+| `.g.dart` not committed | false | reject | `git diff --stat` shows it (1082 lines); excluded from review diff only |
+| Story file unfinished / uncommitted | false | reject | Status and checkboxes are updated by this workflow after review |
 
 ## Verification
 

@@ -24,15 +24,15 @@ class PiServer {
   final String token;
   final HubDatabase db;
   final bool _ownsDb;
-  late final HubServer hub;
-  bool _started = false;
+  HubServer? _hub;
+  HubServer get hub => _hub!;
 
-  int get port => hub.port;
+  int get port => _hub?.port ?? 0;
 
   /// Starts one [HubServer] on [ServerConfig.port]. Throws a
   /// [SocketException] when the port is busy.
   Future<void> start({String address = '0.0.0.0'}) async {
-    hub = HubServer(
+    final hub = HubServer(
       db: db,
       store: MemoryTvStore(config.serverId),
       name: config.serverId,
@@ -40,12 +40,12 @@ class PiServer {
       bindAddress: InternetAddress(address),
       strictPort: true,
     )..registerHttpHandler(handle);
-    _started = true;
+    _hub = hub;
     await hub.start();
   }
 
   Future<void> stop() async {
-    if (_started) await hub.stop();
+    await _hub?.stop();
     if (_ownsDb) await db.close();
   }
 
@@ -94,12 +94,14 @@ class PiServer {
 
     if (segs.length == 1 && segs[0] == 'health') {
       if (method != 'GET' && method != 'HEAD') return _plain(req, 405);
-      final body = utf8.encode(jsonEncode({
-        'ok': true,
-        'id': config.serverId,
-        'v': serverVersion,
-        'clients': hub.readyClientCount,
-      }));
+      final body = utf8.encode(
+        jsonEncode({
+          'ok': true,
+          'id': config.serverId,
+          'v': serverVersion,
+          'clients': hub.readyClientCount,
+        }),
+      );
       req.response.headers.contentType = ContentType.json;
       req.response.contentLength = body.length;
       if (method == 'GET') req.response.add(body);
@@ -179,18 +181,20 @@ class PiServer {
     var sourceDone = false;
     try {
       await res.addStream(
-        file.openRead(start, end + 1).transform(
-          StreamTransformer<List<int>, List<int>>.fromHandlers(
-            handleData: (chunk, sink) {
-              sent += chunk.length;
-              sink.add(chunk);
-            },
-            handleDone: (sink) {
-              sourceDone = true;
-              sink.close();
-            },
-          ),
-        ),
+        file
+            .openRead(start, end + 1)
+            .transform(
+              StreamTransformer<List<int>, List<int>>.fromHandlers(
+                handleData: (chunk, sink) {
+                  sent += chunk.length;
+                  sink.add(chunk);
+                },
+                handleDone: (sink) {
+                  sourceDone = true;
+                  sink.close();
+                },
+              ),
+            ),
       );
       if (sourceDone && sent != length) {
         throw StateError('short read: sent $sent of $length bytes');
@@ -204,7 +208,9 @@ class PiServer {
     } catch (err) {
       // Mid-stream read error or short read: headers with Content-Length are
       // already committed, so destroy the socket so the client never hangs.
-      stderr.writeln('tvsaver stream error ${req.method} ${req.uri.path}: $err');
+      stderr.writeln(
+        'tvsaver stream error ${req.method} ${req.uri.path}: $err',
+      );
       try {
         final socket = await res.detachSocket(writeHeaders: false);
         socket.destroy();

@@ -15,10 +15,10 @@ String hashToken(String rawToken) =>
 bool constantTimeEquals(String a, String b) {
   final ab = utf8.encode(a);
   final bb = utf8.encode(b);
-  if (ab.length != bb.length) return false;
-  var diff = 0;
-  for (var i = 0; i < ab.length; i++) {
-    diff |= ab[i] ^ bb[i];
+  var diff = ab.length ^ bb.length;
+  final n = ab.length > bb.length ? ab.length : bb.length;
+  for (var i = 0; i < n; i++) {
+    diff |= (i < ab.length ? ab[i] : 0) ^ (i < bb.length ? bb[i] : 0);
   }
   return diff == 0;
 }
@@ -53,8 +53,16 @@ class HubDatabase extends _$HubDatabase {
 
   /// File-backed database at [path]; creates parent directories.
   factory HubDatabase.open(String path) {
-    File(path).parent.createSync(recursive: true);
-    return HubDatabase(NativeDatabase(File(path)));
+    final file = File(path);
+    file.parent.createSync(recursive: true);
+    final existed = file.existsSync();
+    final db = HubDatabase(NativeDatabase(file));
+    if (!existed && !Platform.isWindows) {
+      // Create the file now so it can be restricted before any data lands.
+      file.createSync();
+      Process.runSync('chmod', ['600', path]);
+    }
+    return db;
   }
 
   factory HubDatabase.inMemory() => HubDatabase(NativeDatabase.memory());
