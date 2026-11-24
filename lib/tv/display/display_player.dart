@@ -125,10 +125,6 @@ class DisplayPlayer {
   /// stays awake only then.
   final ValueNotifier<bool> active = ValueNotifier(false);
 
-  /// Width over height of the clip on screen, once the decoder knows it; the
-  /// screen sizes the video surface by it so nothing is stretched.
-  final ValueNotifier<double?> videoAspect = ValueNotifier(null);
-
   /// The native photo surface is wanted in the tree (a photo is on it).
   final ValueNotifier<bool> nativeImageActive = ValueNotifier(false);
 
@@ -256,7 +252,6 @@ class DisplayPlayer {
     }
     _isImage = false;
     _stopImage();
-    videoAspect.value = null;
     var playUrl = url;
     var playHeaders = Map<String, String>.of(headers);
     final c = cache;
@@ -350,7 +345,6 @@ class DisplayPlayer {
     var drawn = false;
     if (nativeImages) {
       nativeImageActive.value = true; // the surface is created now
-      videoAspect.value = null;
       drawn = await native.showImage(
         path: file.path,
         crossfadeMs: crossfade ? 800 : 0,
@@ -552,10 +546,6 @@ class DisplayPlayer {
     if (changing.value && (s.position > Duration.zero || s.error != null)) {
       changing.value = false; // the clip is showing, or has failed
     }
-    final aspect = s.aspect;
-    if (aspect != null && aspect > 0 && videoAspect.value != aspect) {
-      videoAspect.value = aspect;
-    }
     final dur = s.duration;
     if (dur != null && dur > Duration.zero) {
       _durationMs = dur.inMilliseconds;
@@ -648,7 +638,6 @@ class DisplayPlayer {
     _unpin();
     active.value = false;
     active.dispose();
-    videoAspect.dispose();
     nativeImageActive.dispose();
     changing.dispose();
     image.dispose();

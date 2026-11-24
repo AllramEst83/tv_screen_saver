@@ -59,6 +59,7 @@ class VideoSpike(
     private val onItemEnded: () -> Unit = {},
 ) {
     private var surfaceView: SurfaceView? = null
+    private var frame: AspectFrame? = null
     private val images = ImageSurface(activity)
     private var player: ExoPlayer? = null
     private var decoderName: String? = null
@@ -70,6 +71,10 @@ class VideoSpike(
     private val endListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_ENDED) onItemEnded()
+        }
+
+        override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+            frame?.aspect = (displayAspect(player) ?: 0.0).toFloat()
         }
     }
 
@@ -121,10 +126,22 @@ class VideoSpike(
     fun factory(): PlatformViewFactory = object : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
         override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
             val view = SurfaceView(context)
+            val box = AspectFrame(context)
+            box.addView(
+                view,
+                android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            frame = box
             attach(view)
             return object : PlatformView {
-                override fun getView(): View = view
-                override fun dispose() = detach(view)
+                override fun getView(): View = box
+                override fun dispose() {
+                    if (frame === box) frame = null
+                    detach(view)
+                }
             }
         }
     }
@@ -330,6 +347,7 @@ class VideoSpike(
     }
 
     private fun m3Release() {
+        frame?.aspect = 0f
         player?.let {
             it.removeListener(endListener)
             it.removeAnalyticsListener(analytics)

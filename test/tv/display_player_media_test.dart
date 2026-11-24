@@ -371,28 +371,6 @@ void main() {
     });
   });
 
-  group('the shape of a clip', () {
-    test(
-      'the shape the decoder reports reaches the screen; a new clip resets it',
-      () async {
-        await player.load(itemId: 'v.mp4', url: url('v.mp4'), headers: headers);
-        expect(player.videoAspect.value, isNull);
-        native.statsValue = const Media3Stats(aspect: 4 / 3);
-        await player.freshSnapshot();
-        expect(player.videoAspect.value, closeTo(4 / 3, 0.001));
-        await player.load(itemId: 'w.mp4', url: url('w.mp4'), headers: headers);
-        expect(player.videoAspect.value, isNull);
-      },
-    );
-
-    test('an unknown or silly shape is ignored', () async {
-      await player.load(itemId: 'v.mp4', url: url('v.mp4'), headers: headers);
-      native.statsValue = const Media3Stats(aspect: 0);
-      await player.freshSnapshot();
-      expect(player.videoAspect.value, isNull);
-    });
-  });
-
   group('changing between kinds', () {
     test('the first picture and a photo over a photo do not dip', () async {
       await photo('a.jpg');

@@ -311,21 +311,13 @@ class _DisplayScreenState extends State<DisplayScreen>
           child: Stack(
             fit: StackFit.expand,
             children: [
+              // The surface fills the screen and never changes size; the
+              // native frame around it keeps a clip's own shape.
               if (!_menuOpen)
-                ValueListenableBuilder<double?>(
-                  valueListenable: _client.player.videoAspect,
-                  builder: (context, aspect, _) {
-                    final view =
-                        widget.media3View?.call(_onMedia3ViewCreated) ??
-                        _media3View();
-                    // Keep the clip's own shape: the surface would otherwise
-                    // stretch it to the whole screen.
-                    return Center(
-                      child: aspect == null
-                          ? view
-                          : AspectRatio(aspectRatio: aspect, child: view),
-                    );
-                  },
+                Positioned.fill(
+                  child:
+                      widget.media3View?.call(_onMedia3ViewCreated) ??
+                      _media3View(),
                 ),
               Positioned.fill(
                 child: ValueListenableBuilder<bool>(
