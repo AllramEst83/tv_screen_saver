@@ -46,11 +46,14 @@ class HomeScreen extends StatelessWidget {
             for (final d in devices)
               ListTile(
                 key: Key('device-${d.id}'),
-                leading: Icon(
-                  Icons.circle,
-                  key: Key('dot-${d.id}'),
-                  size: 12,
-                  color: d.online ? Colors.green : Colors.grey,
+                leading: Semantics(
+                  label: d.online ? 'online' : 'offline',
+                  child: Icon(
+                    Icons.circle,
+                    key: Key('dot-${d.id}'),
+                    size: 12,
+                    color: d.online ? Colors.green : Colors.grey,
+                  ),
                 ),
                 title: Text(d.id == me?.id ? '${d.name} (this phone)' : d.name),
                 subtitle: Text(roleLabel(d.role)),
@@ -74,7 +77,10 @@ class HomeScreen extends StatelessWidget {
         title: const Text('Forget this Pi?'),
         content: const Text(
           'This phone will stop controlling it. Other phones and the TV '
-          'are not affected. Scan the TV code again to pair.',
+          'are not affected, and the Pi keeps the device record of this phone. '
+          'If you are the only owner, you may need `tvsaver admin '
+          'reset-pairings` on the Pi or "Forget all phones" on the TV to '
+          'become owner again.',
         ),
         actions: [
           TextButton(
@@ -89,6 +95,12 @@ class HomeScreen extends StatelessWidget {
         ],
       ),
     );
-    if (yes == true) await controller.forgetThisPi();
+    if (yes != true) return;
+    final ok = await controller.forgetThisPi();
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('Could not forget this Pi.')),
+      );
+    }
   }
 }

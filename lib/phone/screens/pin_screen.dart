@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:hub_core/hub_core.dart';
 
 import '../phone_controller.dart';
 
@@ -21,46 +22,60 @@ class _PinScreenState extends State<PinScreen> {
   final _pin = TextEditingController();
   Timer? _timer;
   int _remaining = 0;
-  int? _seenRetryMs;
-  Object? _seenState;
+
+  /// The `pinRetryInMs` whose countdown already started, so unrelated state
+  /// changes that carry it along do not restart the countdown.
+  int? _consumedMs;
+  bool _lockoutEnded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_syncLockout);
+    _syncLockout();
+  }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_syncLockout);
     _timer?.cancel();
     _pin.dispose();
     super.dispose();
   }
 
   void _syncLockout() {
-    final hub = widget.controller.hub;
-    if (identical(_seenState, hub)) return;
-    _seenState = hub;
-    final ms = hub.pinRetryInMs;
+    final ms = widget.controller.hub.pinRetryInMs;
     if (ms == null) {
-      _seenRetryMs = null;
-      _remaining = 0;
-      _timer?.cancel();
+      _consumedMs = null;
       return;
     }
-    if (ms == _seenRetryMs && _remaining > 0) return;
-    _seenRetryMs = ms;
-    _remaining = (ms / 1000).ceil();
+    if (ms == _consumedMs) return;
+    _consumedMs = ms;
     _timer?.cancel();
+    _lockoutEnded = false;
+    _remaining = (ms / 1000).ceil();
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (!mounted) return;
-      setState(() => _remaining--);
-      if (_remaining <= 0) t.cancel();
+      setState(() {
+        _remaining--;
+        if (_remaining <= 0) {
+          t.cancel();
+          _lockoutEnded = true;
+        }
+      });
     });
+    if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    _syncLockout();
     final hub = widget.controller.hub;
     final locked = _remaining > 0;
     final error = locked
         ? 'Too many tries. Wait $_remaining s.'
-        : (hub.pinRetryInMs != null ? null : hub.lastError);
+        : (_lockoutEnded && hub.pinRetryInMs != null
+              ? 'You can try again now.'
+              : (hub.pinRetryInMs != null ? null : hub.lastError));
     return Scaffold(
       appBar: AppBar(title: const Text('Enter the PIN')),
       body: SafeArea(
@@ -70,8 +85,8 @@ class _PinScreenState extends State<PinScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'Enter the 4-digit PIN shown on the TV.',
+              Text(
+                'Enter the $kPinLength-digit PIN shown on the TV.',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
@@ -82,7 +97,7 @@ class _PinScreenState extends State<PinScreen> {
                 autofocus: true,
                 keyboardType: TextInputType.number,
                 textAlign: TextAlign.center,
-                maxLength: 4,
+                maxLength: kPinLength,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 style: Theme.of(context).textTheme.headlineMedium,
                 onChanged: (_) => setState(() {}),
@@ -95,13 +110,17 @@ class _PinScreenState extends State<PinScreen> {
                     error,
                     key: const Key('pin-error'),
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
                 ),
               const SizedBox(height: 8),
               FilledButton(
                 key: const Key('pin-submit'),
-                onPressed: !locked && _pin.text.length == 4 ? _submit : null,
+                onPressed: !locked && _pin.text.length == kPinLength
+                    ? _submit
+                    : null,
                 child: const Text('Pair'),
               ),
               TextButton(
@@ -117,9 +136,9 @@ class _PinScreenState extends State<PinScreen> {
   }
 
   void _submit() {
-    if (_remaining > 0 || _pin.text.length != 4) return;
+    if (_remaining > 0 || _pin.text.length != kPinLength) return;
     widget.controller.submitPin(_pin.text);
     _pin.clear();
-    setState(() {});
+    setState(() => _lockoutEnded = false);
   }
 }

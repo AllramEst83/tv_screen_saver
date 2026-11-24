@@ -15,10 +15,7 @@ void main() {
   setUp(() => phone = PhoneRig());
   tearDown(() => phone.dispose());
 
-  Future<void> pumpApp(
-    WidgetTester tester, {
-    QrScannerBuilder? scanner,
-  }) async {
+  Future<void> pumpApp(WidgetTester tester, {QrScannerBuilder? scanner}) async {
     await tester.pumpWidget(
       PhoneApp(controller: phone.controller, scannerBuilder: scanner),
     );
@@ -30,7 +27,9 @@ void main() {
     phone.client.state.value = s;
   }
 
-  testWidgets('first launch: Connect with Scan QR and no Retry', (tester) async {
+  testWidgets('first launch: Connect with Scan QR and no Retry', (
+    tester,
+  ) async {
     await pumpApp(tester);
     expect(find.byKey(const Key('scan-qr')), findsOneWidget);
     expect(find.byKey(const Key('retry')), findsNothing);
@@ -107,7 +106,8 @@ void main() {
     await tester.pump();
     expect(find.text("That isn't a TV Saver QR code."), findsOneWidget);
     expect(find.byType(ScanScreen), findsOneWidget);
-    await tester.pump(const Duration(seconds: 3)); // Debounce timer.
+    await tester.pump(const Duration(seconds: 3)); // Banner clears itself.
+    expect(find.text("That isn't a TV Saver QR code."), findsNothing);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -133,14 +133,11 @@ void main() {
     expect(find.byKey(const Key('open-settings')), findsOneWidget);
   });
 
-  testWidgets('PIN screen: wrong PIN message, then lockout countdown', (
+  testWidgets('PIN screen: wrong PIN message', (
     tester,
   ) async {
     await pumpApp(tester);
-    setHub(
-      tester,
-      const HubClientState(phase: HubConnectionPhase.awaitingPin),
-    );
+    setHub(tester, const HubClientState(phase: HubConnectionPhase.awaitingPin));
     await tester.pump();
     expect(find.byType(PinScreen), findsOneWidget);
 
@@ -153,7 +150,12 @@ void main() {
     );
     await tester.pump();
     expect(find.text(HubMessages.wrongPin), findsOneWidget);
+  });
 
+  testWidgets('PIN screen: lockout countdown disables the field', (
+    tester,
+  ) async {
+    await pumpApp(tester);
     setHub(
       tester,
       HubClientState(
@@ -178,9 +180,7 @@ void main() {
     );
   });
 
-  testWidgets('Home shows the Pi name and own role', (
-    tester,
-  ) async {
+  testWidgets('Home shows the Pi name and own role', (tester) async {
     await tester.pumpWidget(PhoneApp(controller: phone.controller));
     await tester.pump();
     setHub(
@@ -202,42 +202,197 @@ void main() {
     expect(find.text('You: Owner'), findsOneWidget);
   });
 
-  testWidgets('Home lists devices with online dots; Forget this Pi asks first', (
-    tester,
-  ) async {
-    late Rig server;
+  testWidgets(
+    'Home lists devices with online dots; Forget this Pi asks first',
+    (tester) async {
+      late Rig server;
+      await tester.runAsync(() async {
+        server = await Rig.start();
+        await phone.controller.start();
+        await phone.controller.pairFromQr(server.openQr());
+        await phone.waitFor(PhoneScreen.home);
+        await until(() => phone.controller.devices.isNotEmpty);
+      });
+      await tester.pumpWidget(PhoneApp(controller: phone.controller));
+      await tester.pump();
+      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(find.text('You: Owner'), findsOneWidget);
+      expect(find.textContaining('(this phone)'), findsOneWidget);
+      final me = phone.controller.me!;
+      final dot = tester.widget<Icon>(find.byKey(Key('dot-${me.id}')));
+      expect(dot.color, Colors.green);
+
+      await tester.tap(find.byKey(const Key('forget-pi')));
+      await tester.pumpAndSettle();
+      expect(find.text('Forget this Pi?'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('forget-confirm')));
+      await tester.pumpAndSettle();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
+      );
+      // The socket's close handshake timer runs on the fake clock.
+      await tester.pump(const Duration(seconds: 6));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('scan-qr')), findsOneWidget);
+      await tester.runAsync(() async {
+        expect(await phone.store.getLastPairing(), isNull);
+        expect(await server.db.allDevices(), hasLength(1));
+        await server.dispose();
+      });
+    },
+  );
+
+  Future<ValueChanged<String>> openScanner(WidgetTester tester) async {
+    late ValueChanged<String> onCode;
+    await pumpApp(
+      tester,
+      scanner: (context, code, problem) {
+        onCode = code;
+        return const ColoredBox(color: Colors.black);
+      },
+    );
+    await tester.tap(find.byKey(const Key('scan-qr')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ScanScreen), findsOneWidget);
+    return onCode;
+  }
+
+  testWidgets('a valid QR leaves the scanner and shows Home', (tester) async {
+    final onCode = await openScanner(tester);
+    final server = (await tester.runAsync(Rig.start))!;
+    addTearDown(() => tester.runAsync(server.dispose));
     await tester.runAsync(() async {
-      server = await Rig.start();
-      await phone.controller.start();
-      await phone.controller.pairFromQr(server.openQr());
-      await phone.waitFor(PhoneScreen.home);
-      await until(() => phone.controller.devices.isNotEmpty);
+      onCode(server.openQr());
+      await until(() => phone.controller.screen == PhoneScreen.home);
     });
-    await tester.pumpWidget(PhoneApp(controller: phone.controller));
-    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(find.byType(ScanScreen), findsNothing);
     expect(find.byType(HomeScreen), findsOneWidget);
     expect(find.text('You: Owner'), findsOneWidget);
-    expect(find.textContaining('(this phone)'), findsOneWidget);
-    final me = phone.controller.me!;
-    final dot = tester.widget<Icon>(find.byKey(Key('dot-${me.id}')));
-    expect(dot.color, Colors.green);
-
-    await tester.tap(find.byKey(const Key('forget-pi')));
-    await tester.pumpAndSettle();
-    expect(find.text('Forget this Pi?'), findsOneWidget);
-    await tester.tap(find.byKey(const Key('forget-confirm')));
-    await tester.pumpAndSettle();
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 300)),
-    );
-    // The socket's close handshake timer runs on the fake clock.
-    await tester.pump(const Duration(seconds: 6));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('scan-qr')), findsOneWidget);
-    await tester.runAsync(() async {
-      expect(await phone.store.getLastPairing(), isNull);
-      expect(await server.db.allDevices(), hasLength(1));
-      await server.dispose();
-    });
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(phone.dispose);
   });
+
+  testWidgets('a QR the hub rejects leaves the scanner for the PIN screen', (
+    tester,
+  ) async {
+    final onCode = await openScanner(tester);
+    final server = (await tester.runAsync(Rig.start))!;
+    addTearDown(() => tester.runAsync(server.dispose));
+    await tester.runAsync(() async {
+      final qr = server.openQr().replaceFirst(RegExp(r'c=[^&]+'), 'c=bad');
+      onCode(qr);
+      await until(() => phone.controller.screen == PhoneScreen.pin);
+    });
+    await tester.pumpAndSettle();
+    expect(find.byType(ScanScreen), findsNothing);
+    expect(find.byType(PinScreen), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(phone.dispose);
+  });
+
+  testWidgets('the scanner closes whenever the screen leaves Connect', (
+    tester,
+  ) async {
+    await openScanner(tester);
+    setHub(tester, const HubClientState(phase: HubConnectionPhase.awaitingPin));
+    await tester.pumpAndSettle();
+    expect(find.byType(ScanScreen), findsNothing);
+    expect(find.byType(PinScreen), findsOneWidget);
+  });
+
+  testWidgets('coming back from settings clears a camera denial and restarts', (
+    tester,
+  ) async {
+    var builds = 0;
+    var denied = true;
+    await pumpApp(
+      tester,
+      scanner: (context, code, problem) {
+        builds++;
+        if (denied) {
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => problem(CameraProblem.denied),
+          );
+        }
+        return const ColoredBox(color: Colors.black);
+      },
+    );
+    await tester.tap(find.byKey(const Key('scan-qr')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('camera-problem')), findsOneWidget);
+    final before = builds;
+
+    denied = false; // Permission granted in settings.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('camera-problem')), findsNothing);
+    expect(builds, greaterThan(before));
+  });
+
+  test('pickScannedCode prefers a pairing URI among several codes', () {
+    const pair = 'tvsaver://pair?v=2&h=10.0.0.2&p=8772&id=x&c=abc';
+    expect(pickScannedCode([null, 'https://a.b', pair, 'other']), pair);
+    expect(pickScannedCode(['https://a.b', 'other']), 'https://a.b');
+    expect(pickScannedCode([null]), isNull);
+  });
+
+  testWidgets('PIN screen filters to digits, caps the length, submits', (
+    tester,
+  ) async {
+    final spy = _SpyController(phone.client, phone.store, phone.lock);
+    addTearDown(spy.dispose);
+    phone.client.state.value = const HubClientState(
+      phase: HubConnectionPhase.awaitingPin,
+    );
+    await tester.pumpWidget(MaterialApp(home: PinScreen(controller: spy)));
+    FilledButton button() =>
+        tester.widget<FilledButton>(find.byKey(const Key('pin-submit')));
+    String text() => tester
+        .widget<TextField>(find.byKey(const Key('pin-field')))
+        .controller!
+        .text;
+    expect(button().onPressed, isNull);
+
+    await tester.enterText(find.byKey(const Key('pin-field')), 'a1b2c3d4e5');
+    await tester.pump();
+    expect(text(), '1234');
+    expect(button().onPressed, isNotNull);
+
+    await tester.tap(find.byKey(const Key('pin-submit')));
+    await tester.pump();
+    expect(spy.pins, ['1234']);
+    expect(text(), isEmpty);
+  });
+
+  testWidgets('PIN lockout: no restart for a consumed value, feedback at end', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+    HubClientState locked({String? error}) => HubClientState(
+      phase: HubConnectionPhase.awaitingPin,
+      pinRetryInMs: 3000,
+      lastError: error ?? HubMessages.tooManyTries(3000),
+    );
+    setHub(tester, locked());
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('Too many tries. Wait 1 s.'), findsOneWidget);
+    // An unrelated state change carries the same pinRetryInMs along.
+    setHub(tester, locked(error: 'something else'));
+    await tester.pump();
+    expect(find.text('Too many tries. Wait 1 s.'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('You can try again now.'), findsOneWidget);
+  });
+}
+
+class _SpyController extends PhoneController {
+  _SpyController(HubClient client, HubTokenStore store, FakeLock lock)
+    : super(client: client, store: store, lock: lock);
+
+  final pins = <String>[];
+
+  @override
+  void submitPin(String pin) => pins.add(pin);
 }

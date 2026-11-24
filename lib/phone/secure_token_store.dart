@@ -24,7 +24,14 @@ class SecureTokenStore implements HubTokenStore {
   }
 
   Future<_Data> _read() async {
-    final raw = await _storage.read(key: storageKey);
+    final String? raw;
+    try {
+      raw = await _storage.read(key: storageKey);
+    } catch (_) {
+      // Keystore failure (e.g. a restored backup that cannot be decrypted).
+      await _discard();
+      return _Data();
+    }
     if (raw == null || raw.isEmpty) return _Data();
     try {
       final json = jsonDecode(raw);
@@ -39,8 +46,15 @@ class SecureTokenStore implements HubTokenStore {
       }
       return data;
     } catch (_) {
+      await _discard();
       return _Data(); // Unreadable record: behave as "not paired".
     }
+  }
+
+  Future<void> _discard() async {
+    try {
+      await _storage.delete(key: storageKey);
+    } catch (_) {}
   }
 
   Future<void> _write(_Data data) => _storage.write(

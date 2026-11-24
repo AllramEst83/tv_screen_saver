@@ -1317,7 +1317,10 @@ class HubServer {
     }
   }
 
-  String _newPin() => _random.nextInt(10000).toString().padLeft(4, '0');
+  String _newPin() => _random
+      .nextInt(pow(10, kPinLength).toInt())
+      .toString()
+      .padLeft(kPinLength, '0');
 
   String _newPairCode() {
     final bytes = List<int>.generate(16, (_) => _random.nextInt(256));

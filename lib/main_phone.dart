@@ -31,11 +31,29 @@ class PhoneApp extends StatefulWidget {
   State<PhoneApp> createState() => _PhoneAppState();
 }
 
-class _PhoneAppState extends State<PhoneApp> {
+class _PhoneAppState extends State<PhoneApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     widget.controller.start();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The multicast lock must not outlive the foreground.
+    if (state == AppLifecycleState.resumed) {
+      widget.controller.setForeground(true);
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      widget.controller.setForeground(false);
+    }
   }
 
   @override

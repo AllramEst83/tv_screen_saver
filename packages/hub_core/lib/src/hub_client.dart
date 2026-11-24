@@ -672,14 +672,7 @@ class HubClient {
           // The TV does not know our token any more: drop it, pair again.
           _sentToken = false;
           _pendingToken = null;
-          final hubId = _expectedHubId ?? state.value.hubId;
-          if (hubId != null) {
-            unawaited(() async {
-              try {
-                await tokenStore.removePairing(hubId);
-              } catch (_) {}
-            }());
-          }
+          _dropSavedToken();
           state.value = state.value.copyWith(
             phase: HubConnectionPhase.awaitingPin,
             knownPairing: false,
@@ -850,14 +843,7 @@ class HubClient {
       if (_sentToken) {
         _sentToken = false;
         _pendingToken = null;
-        final hubId = _expectedHubId ?? state.value.hubId;
-        if (hubId != null) {
-          unawaited(() async {
-            try {
-              await tokenStore.removePairing(hubId);
-            } catch (_) {}
-          }());
-        }
+        _dropSavedToken();
         state.value = state.value.copyWith(
           phase: HubConnectionPhase.disconnected,
           knownPairing: false,
@@ -878,6 +864,18 @@ class HubClient {
         lastError: HubMessages.tvFull,
       );
     }
+  }
+
+  /// Removes the pairing whose token the hub rejected: the expected hub, else
+  /// the last stored pairing when no hub id is known yet.
+  void _dropSavedToken() {
+    final hubId = _expectedHubId ?? state.value.hubId;
+    unawaited(() async {
+      try {
+        final id = hubId ?? (await tokenStore.getLastPairing())?.hubId;
+        if (id != null) await tokenStore.removePairing(id);
+      } catch (_) {}
+    }());
   }
 
   void _startHeartbeat() {

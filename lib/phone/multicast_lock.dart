@@ -18,10 +18,9 @@ class MulticastLock {
   Future<void> _call(String method) async {
     try {
       await _ch.invokeMethod<void>(method);
-    } on PlatformException {
-      // Not fatal: discovery then relies on the last known address.
-    } on MissingPluginException {
-      // No native side (tests, non-Android).
+    } catch (_) {
+      // Not fatal (no native side, lock refused): discovery then relies on
+      // the last known address.
     }
   }
 }
@@ -30,9 +29,7 @@ class MulticastLock {
 Future<void> openAppSettings({MethodChannel channel = _channel}) async {
   try {
     await channel.invokeMethod<void>('openSettings');
-  } on PlatformException {
-    // Nothing more to do.
-  } on MissingPluginException {
-    // No native side.
+  } catch (_) {
+    // Nothing more to do (no native side or settings unavailable).
   }
 }

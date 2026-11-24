@@ -8,6 +8,9 @@ const kWsPath = '/ws';
 const kMaxFrameBytes = 64 * 1024;
 const kQrScheme = 'tvsaver';
 
+/// Digits in the pairing PIN the TV shows and the phone types.
+const kPinLength = 4;
+
 /// Core handshake and transport message types.
 abstract final class HubMsg {
   // Phone -> TV

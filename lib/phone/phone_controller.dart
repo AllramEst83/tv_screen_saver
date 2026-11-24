@@ -37,21 +37,19 @@ class PhoneController extends ChangeNotifier {
   final MulticastLock _lock;
   late final List<StreamSubscription<Map<String, dynamic>>> _subs;
 
+  bool _starting = false;
   bool _started = false;
+  bool _foreground = true;
   bool _hasPairing = false;
   bool _scanning = false;
   bool _lockHeld = false;
   bool _disposed = false;
-  String? _notice;
   List<DeviceInfo> _devices = const [];
 
   HubClientState get hub => client.state.value;
 
   /// A pairing is saved on this phone (the app will reconnect on its own).
   bool get hasPairing => _hasPairing;
-
-  /// One-off message for the Connect screen.
-  String? get notice => _notice;
 
   List<DeviceInfo> get devices => _devices;
 
@@ -82,7 +80,6 @@ class PhoneController extends ChangeNotifier {
       HubConnectionPhase.replaced => HubMessages.replaced,
       HubConnectionPhase.disconnected =>
         h.lastError ??
-            _notice ??
             (_hasPairing
                 ? HubMessages.notConnected
                 : 'Scan the QR code on the TV to pair this phone.'),
@@ -108,7 +105,8 @@ class PhoneController extends ChangeNotifier {
 
   /// Loads the saved pairing and, when there is one, reconnects.
   Future<void> start() async {
-    if (_started) return;
+    if (_starting) return;
+    _starting = true;
     SavedHubPairing? saved;
     try {
       saved = await store.getLastPairing();
@@ -118,8 +116,29 @@ class PhoneController extends ChangeNotifier {
     _started = true;
     notifyListeners();
     if (saved != null) {
-      unawaited(client.reconnectSavedHub());
+      unawaited(_guarded(() async => client.reconnectSavedHub()));
     }
+  }
+
+  /// Runs a client call; an unexpected error becomes a visible state instead
+  /// of escaping.
+  Future<void> _guarded(Future<void> Function() body) async {
+    try {
+      await body();
+    } catch (_) {
+      if (_disposed) return;
+      client.state.value = hub.copyWith(
+        phase: HubConnectionPhase.disconnected,
+        lastError: HubMessages.connectionLost,
+      );
+    }
+  }
+
+  /// The app went to the background or came back: the multicast lock must
+  /// not be held while paused.
+  void setForeground(bool value) {
+    _foreground = value;
+    _syncLock();
   }
 
   /// Called by the scanner while it is on screen: mDNS may be needed.
@@ -132,13 +151,16 @@ class PhoneController extends ChangeNotifier {
   /// are rejected without touching the connection.
   Future<QrOutcome> pairFromQr(String raw) async {
     if (PairQrData.tryParse(raw) == null) return QrOutcome.invalid;
-    _notice = null;
     unawaited(_connectQr(raw));
     return QrOutcome.started;
   }
 
   Future<void> _connectQr(String raw) async {
-    await client.connectFromQrUri(raw);
+    await _guarded(() async {
+      // Drop any attempt still in flight (a retry loop, an earlier scan).
+      await client.disconnect();
+      await client.connectFromQrUri(raw);
+    });
     await _refreshPairing();
   }
 
@@ -150,21 +172,28 @@ class PhoneController extends ChangeNotifier {
     await _refreshPairing();
   }
 
-  Future<void> retry() async {
-    _notice = null;
-    unawaited(client.retryNow());
-  }
+  Future<void> retry() => _guarded(() async => client.retryNow());
 
   /// Removes only this phone's pairing: the Pi keeps the device record.
-  Future<void> forgetThisPi() async {
-    final hubId = hub.hubId;
+  /// Disconnects first so the client cannot save the token again. Returns
+  /// false when the pairing could not be removed.
+  Future<bool> forgetThisPi() async {
+    var hubId = hub.hubId;
+    if (hubId == null) {
+      try {
+        hubId = (await store.getLastPairing())?.hubId;
+      } catch (_) {}
+    }
+    await _guarded(client.disconnect);
+    var ok = true;
     try {
       if (hubId != null) await store.removePairing(hubId);
-    } catch (_) {}
-    await client.disconnect();
+    } catch (_) {
+      ok = false;
+    }
     _devices = const [];
-    _notice = null;
     await _refreshPairing();
+    return ok;
   }
 
   Future<void> _refreshPairing() async {
@@ -177,9 +206,11 @@ class PhoneController extends ChangeNotifier {
   void _onHubState() {
     if (hub.phase == HubConnectionPhase.connected) {
       _hasPairing = true;
-      _notice = null;
-    } else if (!hub.knownPairing && hub.phase != HubConnectionPhase.connecting) {
-      unawaited(_refreshPairing());
+    } else {
+      _devices = const [];
+      if (!hub.knownPairing && hub.phase != HubConnectionPhase.connecting) {
+        unawaited(_refreshPairing());
+      }
     }
     _syncLock();
     if (!_disposed) notifyListeners();
@@ -188,11 +219,12 @@ class PhoneController extends ChangeNotifier {
   void _syncLock() {
     final phase = hub.phase;
     final want =
-        _scanning ||
-        phase == HubConnectionPhase.connecting ||
-        phase == HubConnectionPhase.reconnecting ||
-        phase == HubConnectionPhase.offline ||
-        phase == HubConnectionPhase.appNotOpen;
+        _foreground &&
+        (_scanning ||
+            phase == HubConnectionPhase.connecting ||
+            phase == HubConnectionPhase.reconnecting ||
+            phase == HubConnectionPhase.offline ||
+            phase == HubConnectionPhase.appNotOpen);
     if (want == _lockHeld) return;
     _lockHeld = want;
     unawaited(want ? _lock.acquire() : _lock.release());
@@ -212,10 +244,15 @@ class PhoneController extends ChangeNotifier {
 
   void _setDevices(Object? list) {
     if (list is! List) return;
-    _devices = [
-      for (final d in list)
-        if (d is Map<String, dynamic>) DeviceInfo.fromJson(d),
-    ];
+    final parsed = <DeviceInfo>[];
+    for (final d in list) {
+      try {
+        if (d is Map<String, dynamic>) parsed.add(DeviceInfo.fromJson(d));
+      } catch (_) {
+        // Skip a malformed entry, keep the rest.
+      }
+    }
+    _devices = parsed;
     if (!_disposed) notifyListeners();
   }
 

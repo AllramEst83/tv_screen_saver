@@ -21,39 +21,83 @@ void main() {
   setUp(() async => rig = await TestHubRig.start());
   tearDown(() => rig.dispose());
 
-  test('no pairing session: says to start pairing on the TV, not "TV not found"', () async {
+  test(
+    'no pairing session: says to start pairing on the TV, not "TV not found"',
+    () async {
+      rig.server.openPairingSession();
+      final qr = rig.server.currentQrUri('127.0.0.1')!;
+      rig.server.closePairingSession();
+      final client = _client(MemoryHubTokenStore());
+      addTearDown(client.dispose);
+
+      expect(await client.connectFromQrUri(qr), isFalse);
+      final st = client.state.value;
+      expect(st.phase, HubConnectionPhase.disconnected);
+      expect(st.lastError, HubMessages.pairingNotOpen);
+    },
+  );
+
+  test(
+    'a token the hub no longer knows is dropped and reported as revoked',
+    () async {
+      final store = MemoryHubTokenStore();
+      final client = _client(store);
+      addTearDown(client.dispose);
+      rig.server.openPairingSession();
+      expect(
+        await client.connectFromQrUri(rig.server.currentQrUri('127.0.0.1')!),
+        isTrue,
+      );
+      while (await store.getLastPairing() == null) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      await client.disconnect();
+      rig.server.closePairingSession();
+      await rig.server.forgetAllPhones();
+
+      expect(await client.reconnectSavedHub(), isFalse);
+      expect(client.state.value.lastError, HubMessages.revoked);
+      expect(client.state.value.knownPairing, isFalse);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(await store.getLastPairing(), isNull);
+    },
+  );
+
+  test('pairing turned off: no saved token says pairing is off', () async {
     rig.server.openPairingSession();
     final qr = rig.server.currentQrUri('127.0.0.1')!;
-    rig.server.closePairingSession();
+    rig.server.allowPairing = false;
     final client = _client(MemoryHubTokenStore());
     addTearDown(client.dispose);
 
     expect(await client.connectFromQrUri(qr), isFalse);
-    final st = client.state.value;
-    expect(st.phase, HubConnectionPhase.disconnected);
-    expect(st.lastError, HubMessages.pairingNotOpen);
+    expect(client.state.value.phase, HubConnectionPhase.disconnected);
+    expect(client.state.value.lastError, HubMessages.pairingOff);
   });
 
-  test('a token the hub no longer knows is dropped and reported as revoked', () async {
-    final store = MemoryHubTokenStore();
-    final client = _client(store);
-    addTearDown(client.dispose);
-    rig.server.openPairingSession();
-    expect(
-      await client.connectFromQrUri(rig.server.currentQrUri('127.0.0.1')!),
-      isTrue,
-    );
-    while (await store.getLastPairing() == null) {
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-    }
-    await client.disconnect();
-    rig.server.closePairingSession();
-    await rig.server.forgetAllPhones();
+  test(
+    'pairing turned off: an unknown saved token takes the revoked path',
+    () async {
+      final store = MemoryHubTokenStore();
+      final client = _client(store);
+      addTearDown(client.dispose);
+      rig.server.openPairingSession();
+      expect(
+        await client.connectFromQrUri(rig.server.currentQrUri('127.0.0.1')!),
+        isTrue,
+      );
+      while (await store.getLastPairing() == null) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      await client.disconnect();
+      await rig.server.forgetAllPhones();
+      rig.server.allowPairing = false;
 
-    expect(await client.reconnectSavedHub(), isFalse);
-    expect(client.state.value.lastError, HubMessages.revoked);
-    expect(client.state.value.knownPairing, isFalse);
-    await Future<void>.delayed(const Duration(milliseconds: 100));
-    expect(await store.getLastPairing(), isNull);
-  });
+      expect(await client.reconnectSavedHub(), isFalse);
+      expect(client.state.value.lastError, HubMessages.revoked);
+      expect(client.state.value.knownPairing, isFalse);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(await store.getLastPairing(), isNull);
+    },
+  );
 }

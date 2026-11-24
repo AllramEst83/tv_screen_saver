@@ -305,4 +305,10 @@ flutter build apk --release --flavor tv -t lib/main_tv.dart --target-platform an
 ls -l build/app/outputs/flutter-apk/app-tv-release.apk
 ```
 
+The TV manifest removes the CAMERA permission the scanner plugin merges in. Check the release TV APK has none (`aapt` is in the Android SDK `build-tools/<version>/` folder; the command prints nothing and exits 1 when the permission is absent):
+
+```bash
+aapt dump permissions build/app/outputs/flutter-apk/app-tv-release.apk | grep CAMERA
+```
+
 Story 3-3: 13,784,172 bytes before, 19,409,444 after (+5.4 MiB, limit +8 MB).

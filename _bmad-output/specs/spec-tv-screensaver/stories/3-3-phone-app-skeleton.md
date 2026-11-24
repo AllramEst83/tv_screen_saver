@@ -2,7 +2,7 @@
 title: 'Phone app skeleton with discovery and QR pairing'
 type: 'feature'
 created: '2026-11-24'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '2e5d4fe4ffafa74d87f128cd222fec39d3f940c4'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -62,12 +62,12 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `pubspec.yaml`, Android manifests, `MainActivity.kt` -- dependencies, permissions, multicast channel
-- [ ] `lib/phone/secure_token_store.dart`, `multicast_lock.dart`, `phone_controller.dart` -- storage, lock, controller over `HubClient`
-- [ ] `lib/main_phone.dart`, `lib/phone/screens/*` -- Connect, Scan, PIN, Home screens
-- [ ] `packages/hub_core/tool/fake_display.dart` -- dev display stand-in
-- [ ] `test/phone/**` -- tests for every matrix row (camera and mDNS rows with fakes)
-- [ ] `BUILD_AND_DEPLOY.md` -- phone build, install, fake-display pairing steps
+- [x] `pubspec.yaml`, Android manifests, `MainActivity.kt` -- dependencies, permissions, multicast channel
+- [x] `lib/phone/secure_token_store.dart`, `multicast_lock.dart`, `phone_controller.dart` -- storage, lock, controller over `HubClient`
+- [x] `lib/main_phone.dart`, `lib/phone/screens/*` -- Connect, Scan, PIN, Home screens
+- [x] `packages/hub_core/tool/fake_display.dart` -- dev display stand-in
+- [x] `test/phone/**` -- tests for every matrix row (camera and mDNS rows with fakes)
+- [x] `BUILD_AND_DEPLOY.md` -- phone build, install, fake-display pairing steps
 
 **Acceptance Criteria:**
 - Given the project, when `flutter analyze` and `flutter test` run, then both pass; `flutter build apk --debug --flavor phone -t lib/main_phone.dart` succeeds.
@@ -76,9 +76,30 @@ context:
 
 ## Implementation Notes
 
+- TV release APK 13,784,172 -> 19,409,444 bytes (+5.4 MiB, gate 8 MB); bundled ML Kit scanner; TV APK has no CAMERA permission (`aapt dump permissions`). `HubClient` now treats an unrequested `err unavailable|forbidden` in the handshake as final (clear message, saved token dropped) and `kPinLength` is shared in `protocol.dart`; no wire change. Every phone is named "Phone" (deferred). Manual check on a real phone and Pi is still open.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+| Finding | Verdict | Route | Evidence |
+| --- | --- | --- | --- |
+| ScanScreen pop after accepted QR untested; scan route can stay over Home/PIN when hub state changes underneath | medium | patch | Only controller-level `QrOutcome.started` test; no widget test drives a valid code |
+| `forbidden`/`pairingOff` client branch untested; revoked path leaves the record when hubId is null | low | patch | Only two refusal tests, both `unavailable` |
+| SecureTokenStore `read` throws (corrupt Keystore) outside try; forget can fail silently or resurrect | medium | patch | Reported by edge hunter; store tests use a single pairing |
+| `_connectQr`, `retry`, `start` unawaited with no error handling; Scan tapped during an in-flight reconnect races | medium | patch | Unhandled async errors; two concurrent connects |
+| Camera granted in settings: overlay never clears, scanner never restarts | medium | patch | No lifecycle handling in ScanScreen |
+| Invalid-QR banner never clears; first of several codes in frame wins | low | patch | `_error` never reset |
+| PIN screen: timer started inside `build`, countdown restart, no feedback after lockout, 4-digit length hard-coded, no PIN submit tests | medium | patch | Verified in pin_screen diff |
+| Malformed device entry throws in stream listener; stale `_devices` after disconnect; `start()` twice; dead `_notice` | low | patch | Small guards and removal |
+| fake_display: missing arg value, connect failure, ping after close, `PIN: null`, token write failure | low | patch | Dev tool on the manual-test path |
+| Multicast lock held indefinitely in background; native call can throw non-platform errors | medium | patch | No lifecycle observer; spec says hold while scanning/reconnecting |
+| "Forget this Pi" dialog does not warn the Pi keeps the device record; online dot colour only | low | patch | Copy and Semantics label |
+| TV CAMERA removal and multicast channel unchecked | medium | patch (doc + one check) | Run `aapt dump permissions` on release TV APK; record the command |
+| Every phone is named "Phone" | low | defer | Spec decision; naming belongs to a later story |
+| `unavailable`/`forbidden` with a saved token deleting the pairing is too aggressive | false | reject | Server sends them to a token-holder only when the token was not accepted; transient Pi states refuse the socket instead |
+| TV flavor carries phone native code; size numbers hard-coded in docs; phone release APK unmeasured; fragile test delays; redundant copyWith; torch toggle | low | reject | No named harm; shared source set is simplest |
+| Story file status/checkboxes empty; HubClient change not in spec | false | reject | Workflow updates the story after review; the change is recorded in Implementation Notes |
 
 ## Verification
 
