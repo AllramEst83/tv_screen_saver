@@ -67,6 +67,10 @@ class PlayerModule implements HubModule {
     required this.display,
     required this.playlists,
     this.unplayableReason,
+    this.loadExtras,
+    this.muteFor,
+    this.cacheBytes,
+    this.prefetchCount = 2,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
@@ -77,6 +81,21 @@ class PlayerModule implements HubModule {
   /// Why an item cannot be played (null when it can); `player.play` refuses
   /// such an item.
   final Future<String?> Function(String itemId)? unplayableReason;
+
+  /// Extra `display.load` fields for an item of a playlist: `kind`, and for
+  /// photos `imageMs`, `transition`, `kenBurns`; for videos `cacheRequired`
+  /// and `bytes`.
+  final Future<Map<String, Object?>> Function(String playlistId, String itemId)?
+  loadExtras;
+
+  /// Whether a new `player.play` of [playlistId] starts muted.
+  final Future<bool> Function(String playlistId)? muteFor;
+
+  /// The TV cache cap in bytes, sent with `display.prefetch`.
+  final int Function()? cacheBytes;
+
+  /// How many items after the current one the TV is asked to cache.
+  final int prefetchCount;
   final DateTime Function() _now;
 
   /// How long a Pi-side position change shields against older TV reports.
@@ -205,13 +224,13 @@ class PlayerModule implements HubModule {
   }
 
   /// Starts item [index] of [ids] at the start and tells the display.
-  void _startItem(
+  Future<void> _startItem(
     String displayId,
     _Player p,
     String playlistId,
     List<String> ids,
     int index,
-  ) {
+  ) async {
     p
       ..playlistId = playlistId
       ..index = index
@@ -222,7 +241,52 @@ class PlayerModule implements HubModule {
       ..durationMs = null
       ..ignorePositionUntil = _nowMs + positionShield.inMilliseconds;
     _emitChanged(p);
-    display.sendLoad(displayId, itemId: ids[index], startAt: 0, muted: p.muted);
+    await _sendLoad(displayId, p, ids[index], 0, ids: ids, index: index);
+  }
+
+  /// Sends `display.load` for [itemId] and then `display.prefetch` for the
+  /// items that follow it. A failing lookup never stops playback.
+  Future<void> _sendLoad(
+    String displayId,
+    _Player p,
+    String itemId,
+    int startAt, {
+    List<String>? ids,
+    int? index,
+  }) async {
+    final playlistId = p.playlistId;
+    var extra = const <String, Object?>{};
+    if (playlistId != null) {
+      try {
+        extra = await loadExtras?.call(playlistId, itemId) ?? extra;
+      } catch (_) {}
+    }
+    display.sendLoad(
+      displayId,
+      itemId: itemId,
+      startAt: startAt,
+      muted: p.muted,
+      extra: extra,
+    );
+    if (playlistId == null || prefetchCount <= 0) return;
+    try {
+      final list = ids ?? await playlists.itemIds(playlistId);
+      if (list == null || list.length < 2) return;
+      final at = index ?? list.indexOf(itemId);
+      if (at < 0) return;
+      final next = <String>[];
+      for (var k = 1; k < list.length && next.length < prefetchCount; k++) {
+        final id = list[(at + k) % list.length];
+        if (id != itemId && !next.contains(id)) next.add(id);
+      }
+      if (next.isNotEmpty) {
+        display.sendPrefetch(
+          displayId,
+          itemIds: next,
+          cacheBytes: cacheBytes?.call(),
+        );
+      }
+    } catch (_) {}
   }
 
   /// Goes idle: nothing is playable. The TV is told to clear the picture.
@@ -251,7 +315,7 @@ class PlayerModule implements HubModule {
     for (var k = 0; k < n; k++) {
       final i = (index + delta * k) % n;
       if (await unplayableReason?.call(ids[i]) == null) {
-        _startItem(displayId, p, playlistId, ids, i);
+        await _startItem(displayId, p, playlistId, ids, i);
         return true;
       }
     }
@@ -276,8 +340,9 @@ class PlayerModule implements HubModule {
     if (blocked != null) {
       throw HubError(HubErrorCode.invalid, blocked);
     }
-    p.muted = false; // `setMuted` lasts until the next `play`.
-    _startItem(displayId, p, playlistId, ids, index);
+    // `setMuted` lasts until the next `play`.
+    p.muted = await muteFor?.call(playlistId) ?? false;
+    await _startItem(displayId, p, playlistId, ids, index);
     return null;
   });
 
@@ -461,12 +526,7 @@ class PlayerModule implements HubModule {
       }
       return;
     }
-    display.sendLoad(
-      displayId,
-      itemId: item,
-      startAt: _positionNow(p),
-      muted: p.muted,
-    );
+    await _sendLoad(displayId, p, item, _positionNow(p));
     if (p.state == PlayerState.paused) {
       display.sendControl(displayId, action: 'pause', positionMs: p.positionMs);
     }

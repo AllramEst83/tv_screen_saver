@@ -101,12 +101,27 @@ class DisplayModule implements HubModule {
     required String itemId,
     int startAt = 0,
     bool muted = false,
+    Map<String, Object?> extra = const {},
   }) {
     _send(displayId, 'display.load', {
       'itemId': itemId,
       'variant': 'full',
       'startAt': startAt,
       'muted': muted,
+      ...extra,
+    });
+  }
+
+  /// Tells [displayId] which items will play next so it can cache them, and
+  /// how many bytes its cache may hold.
+  void sendPrefetch(
+    String displayId, {
+    required List<String> itemIds,
+    int? cacheBytes,
+  }) {
+    _send(displayId, 'display.prefetch', {
+      'itemIds': itemIds,
+      'cacheBytes': ?cacheBytes,
     });
   }
 

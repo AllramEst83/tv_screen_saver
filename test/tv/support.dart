@@ -1,4 +1,5 @@
 import 'package:hub_core/hub_core.dart';
+import 'package:tv_saver/tv/cache/media_cache.dart';
 import 'package:tv_saver/tv/display/display_client.dart';
 import 'package:tv_saver/tv/display/display_native.dart';
 import 'package:tv_saver/tv/video_spike/spike_native.dart';
@@ -83,6 +84,7 @@ class TvRig {
     HubTokenStore? store,
     Duration positionInterval = const Duration(milliseconds: 100),
     Duration handshakeTimeout = const Duration(seconds: 20),
+    MediaCache? cache,
   }) : store = store ?? MemoryHubTokenStore(),
        lock = FakeLock(),
        native = FakeDisplayNative() {
@@ -106,6 +108,7 @@ class TvRig {
       client: client,
       store: this.store,
       native: native,
+      cache: cache,
       scanner: FakeScanner([endpoint]),
       lock: lock,
       capabilities: () async => {

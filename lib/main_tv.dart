@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:hub_core/hub_core.dart';
 
 import 'shared/secure_token_store.dart';
+import 'tv/cache/media_cache.dart';
 import 'tv/display/display_client.dart';
 import 'tv/display/display_native.dart';
 import 'tv/display/display_screen.dart';
@@ -43,6 +46,13 @@ Future<void> main() async {
   // Story 1-2: what the TV can decode (HEVC profiles, AC-3 / E-AC-3).
   unawaited(logVideoDecoders(const ChannelSpikeNative()));
 
+  // Decoded pictures: current, next and the one fading out (about 100 MB at
+  // 3840x2160), within the 160 MB budget of media-fidelity.md.
+  PaintingBinding.instance.imageCache
+    ..maximumSizeBytes = 160 * 1024 * 1024
+    ..maximumSize = 8;
+
+  final cache = await _openCache();
   final store = SecureTokenStore();
   final display = DisplayClient(
     client: HubClient(
@@ -54,6 +64,7 @@ Future<void> main() async {
     ),
     store: store,
     native: ChannelDisplayNative(),
+    cache: cache,
   );
 
   runApp(
@@ -107,5 +118,19 @@ class TvSaverApp extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// The TV's media cache in the app's own files directory (never the shared
+/// storage); null when the directory cannot be found, so everything streams.
+Future<MediaCache?> _openCache() async {
+  try {
+    final base = await getApplicationSupportDirectory();
+    final cache = MediaCache(dir: Directory('${base.path}/media-cache'));
+    await cache.cleanPartial();
+    return cache;
+  } catch (e) {
+    debugPrint('TV Saver: no media cache: $e');
+    return null;
   }
 }

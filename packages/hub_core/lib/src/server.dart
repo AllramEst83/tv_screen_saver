@@ -139,6 +139,9 @@ class PiServer {
       display: displayModule,
       playlists: playlists,
       unplayableReason: library.unplayableReason,
+      loadExtras: loadExtras,
+      muteFor: muteFor,
+      cacheBytes: () => config.tvCacheBytes,
     );
     hub.registerModule(player);
     library.onItemRemoved = (id) async {
@@ -153,6 +156,39 @@ class PiServer {
       await _inbox!.start();
     }
     await hub.start();
+  }
+
+  /// What the TV needs to know about an item besides its id: photos get
+  /// their time, transition and Ken Burns flag (the playlist's own value, else
+  /// the Settings value); videos say whether they must be cached first.
+  Future<Map<String, Object?>> loadExtras(
+    String playlistId,
+    String itemId,
+  ) async {
+    final item = await db.libraryItem(itemId);
+    if (item == null) return const {};
+    if (item.kind != 'image') {
+      return {
+        'kind': item.kind,
+        'cacheRequired': item.cacheRequired,
+        'bytes': item.bytes,
+      };
+    }
+    final list = await db.playlistById(playlistId);
+    final values = settings.values;
+    return {
+      'kind': 'image',
+      'bytes': item.bytes,
+      'imageMs': (list?.imageSeconds ?? settings.imageSeconds) * 1000,
+      'transition': list?.transition ?? values['transition'],
+      'kenBurns': list?.kenBurns ?? values['kenBurns'] == true,
+    };
+  }
+
+  /// A playlist's "play without sound" flag, or the Settings switch.
+  Future<bool> muteFor(String playlistId) async {
+    final list = await db.playlistById(playlistId);
+    return (list?.muted ?? false) || settings.values['playWithSound'] == false;
   }
 
   Future<void> stop() async {

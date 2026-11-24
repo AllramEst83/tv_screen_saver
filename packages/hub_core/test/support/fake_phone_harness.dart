@@ -318,6 +318,10 @@ class TestHubRig {
     PlaylistSource? playlists,
     Future<String?> Function(String itemId)? unplayableReason,
     Future<void> Function()? onCapabilitiesChanged,
+    Future<Map<String, Object?>> Function(String, String)? loadExtras,
+    Future<bool> Function(String)? muteFor,
+    int Function()? cacheBytes,
+    int prefetchCount = 2,
   }) async {
     final clock = FakeClock();
     final counter = CountingInterceptor();
@@ -359,6 +363,10 @@ class TestHubRig {
         display: displayModule,
         playlists: playlists,
         unplayableReason: unplayableReason,
+        loadExtras: loadExtras,
+        muteFor: muteFor,
+        cacheBytes: cacheBytes,
+        prefetchCount: prefetchCount,
         now: clock.now,
       );
       server.registerModule(displayModule);

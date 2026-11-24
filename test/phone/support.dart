@@ -90,6 +90,8 @@ class Rig {
     bool withSettings = false,
     bool withLibrary = false,
     int capBytes = 10000,
+    Future<Map<String, Object?>> Function(String, String)? loadExtras,
+    int Function()? cacheBytes,
   }) async {
     final db = dbFile == null
         ? HubDatabase.inMemory()
@@ -114,7 +116,13 @@ class Rig {
     PlayerModule? player;
     if (playlists != null) {
       display = DisplayModule(db: db);
-      player = PlayerModule(db: db, display: display, playlists: playlists);
+      player = PlayerModule(
+        db: db,
+        display: display,
+        playlists: playlists,
+        loadExtras: loadExtras,
+        cacheBytes: cacheBytes,
+      );
       server.registerModule(display);
       server.registerModule(player);
     }

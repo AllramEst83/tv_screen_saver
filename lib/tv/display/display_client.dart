@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hub_core/hub_core.dart';
 
 import '../../shared/multicast_lock.dart';
+import '../cache/media_cache.dart';
 import '../display_report.dart';
 import 'display_native.dart';
 import 'display_player.dart';
@@ -19,6 +20,26 @@ class PairingInfo {
   final String qr;
   final String pin;
   final DateTime expiresAt;
+}
+
+int _widthOf(Object? render) {
+  final m = RegExp(r'^(\d+)x\d+').firstMatch('$render');
+  return m == null ? 0 : int.parse(m.group(1)!);
+}
+
+bool _isPhoto(String id) {
+  final dot = id.lastIndexOf('.');
+  if (dot < 0) return false;
+  return const {
+    'jpg',
+    'jpeg',
+    'png',
+    'webp',
+    'gif',
+    'avif',
+    'heic',
+    'heif',
+  }.contains(id.substring(dot + 1).toLowerCase());
 }
 
 /// How far the remote's fast-forward and rewind keys seek.
@@ -72,6 +93,7 @@ class DisplayClient extends ChangeNotifier {
     Duration statsInterval = const Duration(seconds: 1),
     Duration errorRetry = const Duration(seconds: 3),
     Duration anchorDelay = const Duration(seconds: 3),
+    MediaCache? cache,
     this.retryDelay = const Duration(seconds: 3),
     this.approvalHintDelay = const Duration(seconds: 3),
   }) : _scanner = scanner ?? HubScanner(timeout: const Duration(seconds: 6)),
@@ -85,6 +107,9 @@ class DisplayClient extends ChangeNotifier {
       anchorDelay: anchorDelay,
       reportEnded: _reportEnded,
       reportPosition: _reportPosition,
+      cache: cache,
+      imageVariant: () =>
+          _renderWidth >= 3840 || _renderWidth == 0 ? 'full' : '1920',
     );
   }
 
@@ -94,6 +119,10 @@ class DisplayClient extends ChangeNotifier {
   final HubScanner _scanner;
   final MulticastLock _lock;
   final Future<Map<String, Object?>> Function() _capabilities;
+
+  /// Width in pixels the app renders at (from `display.capabilities`); 0
+  /// until known. Below 3840 the 1920 px photo variant is enough.
+  int _renderWidth = 0;
 
   /// Pause between connection attempts when nothing answers.
   final Duration retryDelay;
@@ -290,6 +319,7 @@ class DisplayClient extends ChangeNotifier {
   Future<void> _announce() async {
     try {
       final caps = await _capabilities().timeout(const Duration(seconds: 5));
+      _renderWidth = _widthOf(caps['render']);
       await client.request('display.capabilities', caps);
     } catch (e) {
       _log('sending capabilities', e); // The report still goes out.
@@ -347,6 +377,8 @@ class DisplayClient extends ChangeNotifier {
           }
         case 'display.load':
           await _onLoad(msg);
+        case 'display.prefetch':
+          await _onPrefetch(msg);
         case 'display.control':
           await player.control(
             '${msg['action']}',
@@ -403,8 +435,68 @@ class DisplayClient extends ChangeNotifier {
       headers: {'Authorization': 'Bearer $token'},
       startAtMs: (msg['startAt'] as num?)?.toInt() ?? 0,
       muted: msg['muted'] as bool?,
+      isImage: msg['kind'] == 'image',
+      imageMs: (msg['imageMs'] as num?)?.toInt() ?? 10000,
+      crossfade: msg['transition'] != 'cut',
+      kenBurns: msg['kenBurns'] == true,
+      cacheRequired: msg['cacheRequired'] == true,
     );
     _notify();
+  }
+
+  /// `display.prefetch`: cache the items that play next (photos in the
+  /// variant this TV needs; videos only when they are small enough to keep).
+  Future<void> _onPrefetch(Map<String, dynamic> msg) async {
+    final cache = player.cache;
+    final ids = msg['itemIds'];
+    if (cache == null || ids is! List) return;
+    final cap = (msg['cacheBytes'] as num?)?.toInt();
+    if (cap != null && cap > 0) cache.capBytes = cap;
+    final st = hub;
+    final host = st.host;
+    final port = st.port;
+    final hubId = st.hubId;
+    if (host == null || port == null || hubId == null) return;
+    final token = (await store.getPairing(hubId))?.token;
+    if (token == null || token.isEmpty) return;
+    final headers = {'Authorization': 'Bearer $token'};
+    Uri urlOf(String id, String variant) => Uri(
+      scheme: 'http',
+      host: host,
+      port: port,
+      pathSegments: ['media', id, variant],
+    );
+    final requests = <CacheRequest>[];
+    for (final id in ids.whereType<String>()) {
+      if (_isPhoto(id)) {
+        final full = CacheRequest(
+          key: '$id.full',
+          url: urlOf(id, 'full'),
+          headers: headers,
+        );
+        final variant = player.imageVariant();
+        requests.add(
+          variant == 'full'
+              ? full
+              : CacheRequest(
+                  key: '$id.$variant',
+                  url: urlOf(id, variant),
+                  headers: headers,
+                  fallback: full,
+                ),
+        );
+      } else {
+        requests.add(
+          CacheRequest(
+            key: '$id.full',
+            url: urlOf(id, 'full'),
+            headers: headers,
+            maxBytes: cache.maxStreamedItemBytes,
+          ),
+        );
+      }
+    }
+    cache.prefetch(requests);
   }
 
   void _setDevices(Object? list) {

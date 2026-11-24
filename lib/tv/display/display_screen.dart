@@ -11,6 +11,7 @@ import 'package:hub_core/hub_core.dart';
 import '../video_spike/spike_native.dart';
 import 'display_client.dart';
 import 'idle_view.dart';
+import 'image_stage.dart';
 import 'pairing_view.dart';
 
 /// How long Back is held to forget every phone.
@@ -221,6 +222,7 @@ class _DisplayScreenState extends State<DisplayScreen>
                       widget.media3View?.call(_onMedia3ViewCreated) ??
                       _media3View(),
                 ),
+              Positioned.fill(child: ImageStage(slots: _client.player.image)),
               if (!_client.player.hasItem && !_client.needsPairing) _idleView(),
               if (_client.needsPairing)
                 Positioned.fill(

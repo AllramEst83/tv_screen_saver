@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:hub_core/hub_core.dart';
 import 'package:test/test.dart';
 
@@ -11,6 +12,7 @@ HubCall _call(
 ]) => HubCall(type: type, device: _device(role), args: args, connectionId: 'c');
 
 void main() {
+  serverExtrasTests();
   late HubDatabase db;
   late PlaylistStore store;
   late PlaylistModule module;
@@ -181,5 +183,72 @@ void main() {
     await create({'name': 'S'});
     final snap = await module.snapshotFor(_device(DeviceRole.controller));
     expect((snap['playlists']! as List).length, 1);
+  });
+}
+
+void serverExtrasTests() {
+  group('what the TV is told about an item', () {
+    late HubDatabase db;
+    late PiServer server;
+
+    setUp(() async {
+      db = HubDatabase.inMemory();
+      server = PiServer(
+        ServerConfig(mediaDir: '.', tokenFile: 'x'),
+        't',
+        db: db,
+      );
+      await server.settings.load();
+      for (final (id, kind, cache) in [
+        ('a.jpg', 'image', false),
+        ('b.mp4', 'video', true),
+      ]) {
+        await db.insertLibraryItem(
+          LibraryItemsCompanion.insert(
+            id: id,
+            kind: kind,
+            name: id,
+            sha256: id.padRight(64, '0'),
+            bytes: 500,
+            createdAt: 1,
+            cacheRequired: Value(cache),
+          ),
+        );
+      }
+    });
+
+    tearDown(() => db.close());
+
+    test('a photo follows the Settings, a playlist overrides them', () async {
+      var extras = await server.loadExtras('all', 'a.jpg');
+      expect(extras['kind'], 'image');
+      expect(extras['imageMs'], server.settings.imageSeconds * 1000);
+      expect(extras['transition'], server.settings.values['transition']);
+      expect(extras['kenBurns'], false);
+
+      final p = await server.playlistStore.create({
+        'name': 'Mine',
+        'items': ['a.jpg'],
+        'imageSeconds': 30,
+        'transition': 'cut',
+        'kenBurns': true,
+        'muted': true,
+      });
+      extras = await server.loadExtras('${p['id']}', 'a.jpg');
+      expect(extras['imageMs'], 30000);
+      expect(extras['transition'], 'cut');
+      expect(extras['kenBurns'], true);
+      expect(await server.muteFor('${p['id']}'), true);
+      expect(await server.muteFor('all'), false);
+    });
+
+    test('a video says whether it must be cached first', () async {
+      final extras = await server.loadExtras('all', 'b.mp4');
+      expect(extras, {'kind': 'video', 'cacheRequired': true, 'bytes': 500});
+    });
+
+    test('an unknown item adds nothing', () async {
+      expect(await server.loadExtras('all', 'nope.jpg'), isEmpty);
+    });
   });
 }
