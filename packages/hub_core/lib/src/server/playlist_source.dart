@@ -85,6 +85,7 @@ class LibraryPlaylistSource implements PlaylistSource {
   Future<List<String>?> itemIds(String playlistId) async {
     if (playlistId != kAllPlaylistId) return null;
     try {
+      await store.reconcileIfStale(); // files copied in by hand
       return _last = await store.videoIds();
     } catch (_) {
       final last = _last;

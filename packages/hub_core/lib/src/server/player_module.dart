@@ -428,6 +428,30 @@ class PlayerModule implements HubModule {
     return {'moved': true};
   });
 
+  /// The library removed [itemId]: a player that is on it moves on as if the
+  /// item had ended (or goes idle when its playlist is empty now). Queued
+  /// items simply drop out of the playlist.
+  Future<void> itemRemoved(String itemId) => _serialized(() async {
+    if (_disposed) return;
+    for (final e in _players.entries.toList()) {
+      final p = e.value;
+      final playlistId = p.playlistId;
+      if (p.itemId != itemId || playlistId == null) continue;
+      final ids = await playlists.itemIds(playlistId);
+      if (ids == null || ids.isEmpty) {
+        p
+          ..itemId = null
+          ..state = PlayerState.idle
+          ..positionMs = 0
+          ..startedAt = null;
+        _emitChanged(p);
+        display.sendControl(e.key, action: 'stop');
+      } else {
+        _startItem(e.key, p, playlistId, ids, _stepIndex(p, ids, 1));
+      }
+    }
+  });
+
   // ---- module plumbing ----
 
   @override

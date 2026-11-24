@@ -20,6 +20,7 @@ const kMaxChunkBytes = 64 * 1024 * 1024;
 const kUploadTtl = Duration(hours: 24);
 
 const _pendingPrefix = 'pending:';
+const _dupPrefix = 'dup:';
 
 /// The variants a client may ask for besides `full`.
 const kVariants = {'thumb', 'poster', '1920'};
@@ -83,7 +84,10 @@ Map<String, Object?> libraryItemJson(LibraryItemRow r) => {
   'id': r.id,
   'kind': r.kind,
   'name': r.name,
-  'sha256': r.sha256.startsWith(_pendingPrefix) ? null : r.sha256,
+  'sha256':
+      r.sha256.startsWith(_pendingPrefix) || r.sha256.startsWith(_dupPrefix)
+      ? null
+      : r.sha256,
   'bytes': r.bytes,
   'width': r.width,
   'height': r.height,
@@ -139,6 +143,27 @@ class _DigestSink implements Sink<Digest> {
   void close() {}
 }
 
+/// Running SHA-256 of an upload while its chunks arrive in order.
+class _RunningHash {
+  _RunningHash() {
+    input = sha256.startChunkedConversion(_sink);
+  }
+
+  final _sink = _DigestSink();
+  late final ByteConversionSink input;
+
+  /// Bytes fed so far.
+  int offset = 0;
+
+  String finish() {
+    input.close();
+    return _sink.value.toString();
+  }
+}
+
+/// Drops `;` parameters and normalizes case.
+String normalizeMime(String mime) => mime.split(';').first.trim().toLowerCase();
+
 /// The library: items in [HubDatabase], files in `mediaDir`, unfinished
 /// uploads in `mediaDir/.uploads`, image and video variants in
 /// `mediaDir/.variants`.
@@ -148,6 +173,8 @@ class LibraryStore {
     required this.db,
     DateTime Function()? now,
     Future<int?> Function(String dir)? freeBytes,
+    this.looseFileGrace = const Duration(seconds: 10),
+    this.reconcileInterval = const Duration(seconds: 5),
   }) : _now = now ?? DateTime.now,
        _freeBytes = freeBytes ?? _dfFreeBytes;
 
@@ -156,11 +183,31 @@ class LibraryStore {
   final DateTime Function() _now;
   final Future<int?> Function(String dir) _freeBytes;
 
+  /// Loose files modified more recently than this are still being copied and
+  /// are not imported yet.
+  final Duration looseFileGrace;
+
+  /// The shortest time between two reconcile runs started by readers.
+  final Duration reconcileInterval;
+
+  /// Called after an item is removed (delete or file gone), so the player can
+  /// move on. Errors are ignored.
+  Future<void> Function(String id)? onItemRemoved;
+
+  /// How many times a finished upload had to be re-read from disk to verify
+  /// it (no running hash: the server restarted). For tests.
+  int diskHashes = 0;
+
   final _events = StreamController<LibraryEvent>.broadcast();
   final Set<String> _busyUploads = {};
-  Timer? _expiryTimer;
+  final Map<String, _RunningHash> _hashers = {};
+  final Set<String> _finishing = {};
+  Timer? _hourlyTimer;
   bool _stopped = false;
   Future<void> _hashing = Future.value();
+  Future<void> _startChain = Future.value();
+  Future<void> _reconcileChain = Future.value();
+  Stopwatch? _sinceReconcile;
 
   Stream<LibraryEvent> get events => _events.stream;
 
@@ -176,20 +223,29 @@ class LibraryStore {
     if (!_events.isClosed) _events.add(LibraryEvent(kind, data));
   }
 
+  void _removed(String id) {
+    _emit('library.removed', {'id': id});
+    final cb = onItemRemoved;
+    if (cb != null) cb(id).then<void>((_) {}, onError: (Object _) {});
+  }
+
   // ---- lifecycle ----
 
-  /// Prepares the directories, drops stale uploads, imports loose files and
-  /// starts the hourly expiry. Hashing of imported files continues in the
-  /// background (see [hashingDone]).
+  /// Prepares the directories, drops stale uploads, finishes uploads a crash
+  /// left half done, imports loose files and starts the hourly sweep. Hashing
+  /// of imported files continues in the background (see [hashingDone]).
   Future<void> start() async {
     _stopped = false;
     await Directory(_uploadsDir).create(recursive: true);
     await expireStaleUploads();
-    await importLooseFiles();
-    _hashing = _hashPending();
-    _expiryTimer?.cancel();
-    _expiryTimer = Timer.periodic(const Duration(hours: 1), (_) {
-      expireStaleUploads().then<void>((_) {}, onError: (Object _) {});
+    await _recoverUploads();
+    await reconcile();
+    _hashing = _hashing.then((_) => _hashPending()); // left from last run
+    _hourlyTimer?.cancel();
+    _hourlyTimer = Timer.periodic(const Duration(hours: 1), (_) {
+      expireStaleUploads()
+          .then<void>((_) => reconcile())
+          .then<void>((_) {}, onError: (Object _) {});
     });
   }
 
@@ -198,15 +254,17 @@ class LibraryStore {
 
   Future<void> stop() async {
     _stopped = true;
-    _expiryTimer?.cancel();
-    _expiryTimer = null;
+    _hourlyTimer?.cancel();
+    _hourlyTimer = null;
     await _hashing.catchError((Object _) {});
+    await _reconcileChain.catchError((Object _) {});
   }
 
   // ---- reading ----
 
   Future<List<LibraryItemRow>> items() => db.allLibraryItems();
 
+  /// Stored bytes plus the declared size of unfinished uploads.
   Future<int> usedBytes() async =>
       await db.libraryBytes() + await db.uploadsBytes();
 
@@ -245,22 +303,22 @@ class LibraryStore {
     return row;
   }
 
-  /// Removes the row, the file and its variants. False when unknown.
+  /// Removes the file, its variants and then the row. False when unknown.
   Future<bool> deleteItem(String id) async {
-    if (!_idPattern.hasMatch(id)) return false;
+    if (!_idPattern.hasMatch(id) || id.startsWith('.')) return false;
     final row = await db.libraryItem(id);
     if (row == null) return false;
+    await _removeFiles(id);
     await db.deleteLibraryItem(id);
-    await _deleteFile(pathOf(id));
-    final dir = Directory(_variantsDir);
-    if (await dir.exists()) {
-      await for (final e in dir.list(followLinks: false)) {
-        final name = e.uri.pathSegments.where((s) => s.isNotEmpty).last;
-        if (name.startsWith('$id.')) await _deleteFile(e.path);
-      }
-    }
-    _emit('library.removed', {'id': id});
+    _removed(id);
     return true;
+  }
+
+  Future<void> _removeFiles(String id) async {
+    await _deleteFile(pathOf(id));
+    for (final v in kVariants) {
+      await _deleteFile(variantPath(id, v));
+    }
   }
 
   Future<void> _deleteFile(String path) async {
@@ -280,15 +338,23 @@ class LibraryStore {
     (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
   ).join();
 
-  /// Starts (or resumes) an upload. Throws [UploadRefused].
+  Future<T> _serializedStart<T>(Future<T> Function() body) {
+    final run = _startChain.then((_) => body());
+    _startChain = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  /// Starts (or resumes) an upload. Throws [UploadRefused]. Calls run one at
+  /// a time, so two clients cannot both pass the duplicate and cap checks.
   Future<({String uploadId, int received})> startUpload({
     required String name,
     required int bytes,
     required String sha256,
     required String mime,
     required String deviceId,
-  }) async {
-    final kind = kindForMime(mime);
+  }) => _serializedStart(() async {
+    final type = normalizeMime(mime);
+    final kind = kindForMime(type);
     if (kind == null) {
       throw const UploadRefused(HttpStatus.unsupportedMediaType);
     }
@@ -300,11 +366,23 @@ class LibraryStore {
     if (existing != null) {
       throw UploadRefused(HttpStatus.conflict, {'id': existing.id});
     }
-    final unfinished = await db.uploadBySha(sha256);
+    var unfinished = await db.uploadBySha(sha256);
     if (unfinished != null) {
+      final busy = _busyUploads.contains(unfinished.id);
+      if (!busy &&
+          unfinished.received >= unfinished.bytes &&
+          !await File(_partPath(unfinished.id)).exists()) {
+        final item = await _recoverUpload(unfinished);
+        if (item != null) {
+          throw UploadRefused(HttpStatus.conflict, {'id': item.id});
+        }
+        unfinished = null;
+      }
+    }
+    if (unfinished != null) {
+      final busy = _busyUploads.contains(unfinished.id);
       final received = await _syncReceived(unfinished);
-      if (received >= unfinished.bytes &&
-          !_busyUploads.contains(unfinished.id)) {
+      if (received >= unfinished.bytes && !busy) {
         // The server stopped after the last chunk but before verifying it.
         final item = await _finish(unfinished); // throws 422 / 409 on failure
         throw UploadRefused(HttpStatus.conflict, {'id': item.id});
@@ -312,9 +390,12 @@ class LibraryStore {
       return (uploadId: unfinished.id, received: received);
     }
     final used = await usedBytes();
+    final others = [
+      for (final u in await db.allUploads()) u.bytes - u.received,
+    ].fold<int>(0, (a, b) => a + b);
     final free = await _freeBytes(config.mediaDir);
     if (used + bytes > config.storageCapBytes ||
-        (free != null && bytes > free)) {
+        (free != null && bytes + others > free)) {
       throw UploadRefused(HttpStatus.insufficientStorage, {
         'code': 'full',
         'usedBytes': used,
@@ -324,26 +405,36 @@ class LibraryStore {
     final id = _newUploadId();
     await Directory(_uploadsDir).create(recursive: true);
     await File(_partPath(id)).create();
-    await db.insertUpload(
-      UploadsCompanion.insert(
-        id: id,
-        name: name,
-        bytes: bytes,
-        sha256: sha256,
-        mime: mime.toLowerCase(),
-        deviceId: Value(deviceId),
-        createdAt: _nowMs,
-      ),
-    );
+    try {
+      await db.insertUpload(
+        UploadsCompanion.insert(
+          id: id,
+          name: name,
+          bytes: bytes,
+          sha256: sha256,
+          mime: type,
+          deviceId: Value(deviceId),
+          createdAt: _nowMs,
+        ),
+      );
+    } catch (_) {
+      await _deleteFile(_partPath(id));
+      final again = await db.uploadBySha(sha256);
+      if (again == null) rethrow;
+      return (uploadId: again.id, received: again.received);
+    }
     return (uploadId: id, received: 0);
-  }
+  });
 
   /// The bytes the Pi really holds for [row]; the row is corrected when the
   /// file is shorter (a crash lost data) and the file is cut back when longer.
-  Future<int> _syncReceived(UploadRow row) async {
+  /// While a chunk is in flight (and [held] is false) the row is returned
+  /// as is.
+  Future<int> _syncReceived(UploadRow row, {bool held = false}) async {
+    if (!held && _busyUploads.contains(row.id)) return row.received;
     final file = File(_partPath(row.id));
-    var length = await file.exists() ? await file.length() : 0;
     if (!await file.exists()) await file.create(recursive: true);
+    var length = await file.length();
     if (length > row.received) {
       final raf = await file.open(mode: FileMode.append);
       try {
@@ -353,7 +444,10 @@ class LibraryStore {
       }
       length = row.received;
     }
-    if (length < row.received) await db.setUploadReceived(row.id, length);
+    if (length < row.received) {
+      await db.setUploadReceived(row.id, length);
+      _hashers.remove(row.id);
+    }
     return length;
   }
 
@@ -372,13 +466,16 @@ class LibraryStore {
     required int total,
     required Stream<List<int>> body,
   }) async {
-    final row = await db.uploadById(uploadId);
-    if (row == null) throw const UploadRefused(HttpStatus.notFound);
     if (!_busyUploads.add(uploadId)) {
       throw const UploadRefused(HttpStatus.conflict);
     }
     try {
-      final received = await _syncReceived(row);
+      final row = await db.uploadById(uploadId);
+      if (row == null) {
+        _hashers.remove(uploadId);
+        throw const UploadRefused(HttpStatus.notFound);
+      }
+      final received = await _syncReceived(row, held: true);
       if (start != received) {
         throw UploadRefused(HttpStatus.requestedRangeNotSatisfiable, const {}, {
           HttpHeaders.contentRangeHeader: 'bytes */$received',
@@ -391,6 +488,14 @@ class LibraryStore {
       if (length > kMaxChunkBytes) {
         throw const UploadRefused(HttpStatus.requestEntityTooLarge);
       }
+      var hash = _hashers[uploadId];
+      if (hash != null && hash.offset != received) {
+        _hashers.remove(uploadId);
+        hash = null;
+      }
+      if (hash == null && received == 0) {
+        hash = _hashers[uploadId] = _RunningHash();
+      }
       final raf = await File(_partPath(uploadId)).open(mode: FileMode.append);
       var written = 0;
       try {
@@ -399,13 +504,15 @@ class LibraryStore {
           written += chunk.length;
           if (written > length) break;
           await raf.writeFrom(chunk);
+          hash?.input.add(chunk);
         }
         if (written != length) {
-          await raf.truncate(received);
           throw const UploadRefused(HttpStatus.badRequest);
         }
         await raf.flush();
       } catch (_) {
+        // Bytes may be in the hash that are not kept: start over at the end.
+        _hashers.remove(uploadId);
         try {
           await raf.truncate(received);
         } catch (_) {}
@@ -414,17 +521,33 @@ class LibraryStore {
         await raf.close();
       }
       final now = received + length;
+      hash?.offset = now;
       await db.setUploadReceived(uploadId, now);
       if (now < row.bytes) return UploadResult.progress(now);
-      return UploadResult.done(await _finish(row));
+      final running = _hashers.remove(uploadId);
+      final digest = running != null && running.offset == row.bytes
+          ? running.finish()
+          : null;
+      return UploadResult.done(await _finish(row, digest: digest));
     } finally {
       _busyUploads.remove(uploadId);
     }
   }
 
-  Future<LibraryItemRow> _finish(UploadRow row) async {
+  /// Verifies the finished part file and moves it into the library. [digest]
+  /// is the running hash; without it the file is read again.
+  Future<LibraryItemRow> _finish(UploadRow row, {String? digest}) async {
     final part = File(_partPath(row.id));
-    final actual = await _hashFile(part);
+    _hashers.remove(row.id);
+    if (!await part.exists()) {
+      await db.deleteUpload(row.id);
+      throw const UploadRefused(HttpStatus.notFound);
+    }
+    var actual = digest;
+    if (actual == null) {
+      diskHashes++;
+      actual = await _hashFile(part);
+    }
     if (actual != row.sha256) {
       await _deleteFile(part.path);
       await db.deleteUpload(row.id);
@@ -438,49 +561,140 @@ class LibraryStore {
     }
     final ext = (_imageMimes[row.mime] ?? _videoMimes[row.mime])!;
     final id = '${row.sha256.substring(0, 16)}.$ext';
-    await part.rename(pathOf(id));
-    final item = LibraryItemsCompanion.insert(
-      id: id,
-      kind: kindForMime(row.mime)!,
-      name: row.name,
-      sha256: row.sha256,
-      bytes: row.bytes,
-      createdAt: _nowMs,
-    );
-    await db.transaction(() async {
-      await db.insertLibraryItem(item);
+    final taken =
+        await db.libraryItem(id) != null ||
+        await FileSystemEntity.type(pathOf(id), followLinks: false) !=
+            FileSystemEntityType.notFound;
+    if (taken) {
+      await _deleteFile(part.path);
       await db.deleteUpload(row.id);
-    });
+      throw UploadRefused(HttpStatus.conflict, {'id': id, 'code': 'collision'});
+    }
+    // File first, row second: a crash in between leaves a final file the next
+    // reconcile imports and an upload row that `_recoverUpload` closes.
+    _finishing.add(id);
+    try {
+      await part.rename(pathOf(id));
+      try {
+        await _insertFinished(row, id);
+      } catch (_) {
+        try {
+          await File(pathOf(id)).rename(part.path);
+        } catch (_) {}
+        rethrow;
+      }
+    } finally {
+      _finishing.remove(id);
+    }
     final saved = (await db.libraryItem(id))!;
     _emit('library.added', libraryItemJson(saved));
     return saved;
   }
 
-  /// Deletes unfinished uploads older than 24 h (file and row).
+  Future<void> _insertFinished(UploadRow row, String id) =>
+      db.transaction(() async {
+        await db.insertLibraryItem(
+          LibraryItemsCompanion.insert(
+            id: id,
+            kind: kindForMime(row.mime)!,
+            name: row.name,
+            sha256: row.sha256,
+            bytes: row.bytes,
+            createdAt: _nowMs,
+          ),
+        );
+        await db.deleteUpload(row.id);
+      });
+
+  /// An upload row whose part file is gone: if the verified final file is in
+  /// the library directory, finish the bookkeeping; else drop the row.
+  Future<LibraryItemRow?> _recoverUpload(UploadRow row) async {
+    final ext = _imageMimes[row.mime] ?? _videoMimes[row.mime];
+    final id = ext == null ? null : '${row.sha256.substring(0, 16)}.$ext';
+    if (id != null &&
+        await FileSystemEntity.type(pathOf(id), followLinks: false) ==
+            FileSystemEntityType.file &&
+        await db.libraryItem(id) == null &&
+        await db.libraryItemBySha(row.sha256) == null) {
+      _finishing.add(id);
+      try {
+        await _insertFinished(row, id);
+      } finally {
+        _finishing.remove(id);
+      }
+      final saved = (await db.libraryItem(id))!;
+      _emit('library.added', libraryItemJson(saved));
+      return saved;
+    }
+    await db.deleteUpload(row.id);
+    return null;
+  }
+
+  Future<void> _recoverUploads() async {
+    for (final u in await db.allUploads()) {
+      if (u.received >= u.bytes && !await File(_partPath(u.id)).exists()) {
+        await _recoverUpload(u);
+      }
+    }
+  }
+
+  /// Deletes unfinished uploads older than 24 h (file and row), and part
+  /// files without a row that are older than an hour.
   Future<int> expireStaleUploads() async {
     final cutoff = _nowMs - kUploadTtl.inMilliseconds;
     var n = 0;
     for (final u in await db.allUploads()) {
       if (u.createdAt >= cutoff || _busyUploads.contains(u.id)) continue;
+      _hashers.remove(u.id);
       await _deleteFile(_partPath(u.id));
       await db.deleteUpload(u.id);
       n++;
     }
-    // Part files without a row (a crash between the two steps).
     final dir = Directory(_uploadsDir);
     if (await dir.exists()) {
       final known = {for (final u in await db.allUploads()) '${u.id}.part'};
       await for (final e in dir.list(followLinks: false)) {
         final name = e.uri.pathSegments.where((s) => s.isNotEmpty).last;
-        if (e is File && !known.contains(name)) await _deleteFile(e.path);
+        if (e is! File || known.contains(name)) continue;
+        // A part file is created just before its row.
+        final age = DateTime.now().difference(await e.lastModified());
+        if (age > const Duration(hours: 1)) await _deleteFile(e.path);
       }
     }
     return n;
   }
 
-  // ---- startup import ----
+  // ---- loose files ----
+
+  /// Imports new loose files and drops rows whose file is gone. Runs one at a
+  /// time.
+  Future<void> reconcile() {
+    _sinceReconcile = Stopwatch()..start();
+    final run = _reconcileChain.then((_) async {
+      await importLooseFiles();
+      await _pruneMissing();
+    });
+    _reconcileChain = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  /// [reconcile], unless one ran less than [reconcileInterval] ago. Never
+  /// throws.
+  Future<void> reconcileIfStale() async {
+    if (_stopped) return;
+    final since = _sinceReconcile;
+    if (since != null && since.elapsed < reconcileInterval) {
+      return _reconcileChain;
+    }
+    try {
+      await reconcile();
+    } catch (_) {
+      // The caller can still use what the database has.
+    }
+  }
 
   /// Gives every loose servable file in `mediaDir` a row (sha256 pending).
+  /// Files modified within [looseFileGrace] are left for later.
   Future<int> importLooseFiles() async {
     final dir = Directory(config.mediaDir);
     if (!await dir.exists()) return 0;
@@ -492,9 +706,15 @@ class LibraryStore {
       if (name.startsWith('.') || !_idPattern.hasMatch(name)) continue;
       if (name.toLowerCase().endsWith('.bin')) continue;
       final kind = kindForFileName(name);
-      if (kind == null || known.contains(name)) continue;
+      if (kind == null || known.contains(name) || _finishing.contains(name)) {
+        continue;
+      }
       final int size;
       try {
+        if (DateTime.now().difference(await e.lastModified()) <
+            looseFileGrace) {
+          continue;
+        }
         size = await e.length();
       } on FileSystemException {
         continue;
@@ -511,22 +731,49 @@ class LibraryStore {
       );
       n++;
     }
+    if (n > 0) _hashing = _hashing.then((_) => _hashPending());
     return n;
   }
 
+  Future<void> _pruneMissing() async {
+    if (!await Directory(config.mediaDir).exists()) return;
+    for (final r in await db.allLibraryItems()) {
+      if (_finishing.contains(r.id)) continue;
+      final type = await FileSystemEntity.type(
+        pathOf(r.id),
+        followLinks: false,
+      );
+      if (type != FileSystemEntityType.notFound) continue;
+      await _removeFiles(r.id);
+      await db.deleteLibraryItem(r.id);
+      _removed(r.id);
+    }
+  }
+
   Future<void> _hashPending() async {
+    final List<LibraryItemRow> pending;
     try {
-      for (final r in await db.pendingLibraryItems()) {
-        if (_stopped) return;
-        final sha = await _hashFile(File(pathOf(r.id)), abortWhenStopped: true);
-        if (sha == null || _stopped) return;
-        if (await db.libraryItemBySha(sha) != null) continue; // a duplicate
-        await db.setLibraryItemSha(r.id, sha);
-        final row = await db.libraryItem(r.id);
-        if (row != null) _emit('library.updated', libraryItemJson(row));
-      }
+      pending = await db.pendingLibraryItems();
     } catch (err) {
       if (!_stopped) stderr.writeln('tvsaver hash error: $err');
+      return;
+    }
+    for (final r in pending) {
+      if (_stopped) return;
+      try {
+        final sha = await _hashFile(File(pathOf(r.id)), abortWhenStopped: true);
+        if (sha == null || _stopped) return;
+        final dup = await db.libraryItemBySha(sha);
+        // The same bytes as another item: remember that, do not hash again.
+        await db.setLibraryItemSha(
+          r.id,
+          dup == null ? sha : '$_dupPrefix${r.id}',
+        );
+        final row = await db.libraryItem(r.id);
+        if (row != null) _emit('library.updated', libraryItemJson(row));
+      } catch (err) {
+        if (!_stopped) stderr.writeln('tvsaver hash error for ${r.id}: $err');
+      }
     }
   }
 

@@ -22,6 +22,10 @@ final _idPattern = RegExp(r'^[A-Za-z0-9._-]+$');
 
 /// The 2-2 media routes (`/health`, bearer-token `/media/<id>/full` with
 /// Range) as a handler mounted on [HubServer] via `registerHttpHandler`.
+class _BodyTooLarge implements Exception {
+  const _BodyTooLarge();
+}
+
 class PiServer {
   PiServer(
     ServerConfig config,
@@ -90,15 +94,20 @@ class PiServer {
     hub.registerModule(LibraryModule(library));
     final displayModule = DisplayModule(db: db);
     hub.registerModule(displayModule);
-    hub.registerModule(
-      PlayerModule(db: db, display: displayModule, playlists: playlists),
+    final player = PlayerModule(
+      db: db,
+      display: displayModule,
+      playlists: playlists,
     );
+    hub.registerModule(player);
+    library.onItemRemoved = player.itemRemoved;
     _hub = hub;
     await library.start();
     await hub.start();
   }
 
   Future<void> stop() async {
+    library.onItemRemoved = null;
     await library.stop();
     await _hub?.stop();
     if (_ownsDb) await db.close();
@@ -191,7 +200,7 @@ class PiServer {
     if (segs.length >= 2 && segs[0] == 'media') {
       if (segs[1] == 'uploads') return _handleUploads(req, segs, device);
       final id = segs[1];
-      if (!_idPattern.hasMatch(id) || id == '.' || id == '..') {
+      if (!_idPattern.hasMatch(id) || id.startsWith('.')) {
         return _plain(req, 400);
       }
       if (segs.length == 2 && method == 'DELETE') {
@@ -316,19 +325,65 @@ class PiServer {
       });
     } on UploadRefused catch (r) {
       return await _refuse(req, r);
+    } on FileSystemException catch (e) {
+      if (_isDiskFull(e)) {
+        return await _refuse(
+          req,
+          UploadRefused(HttpStatus.insufficientStorage, {
+            'code': 'full',
+            'usedBytes': await library.usedBytes(),
+            'capBytes': config.storageCapBytes,
+          }),
+        );
+      }
+      return await _serverError(req, e);
+    } on HttpException {
+      return _dropQuietly(req); // the client aborted the chunk
+    } on SocketException {
+      return _dropQuietly(req);
+    } catch (e) {
+      return await _serverError(req, e);
     }
+  }
+
+  static bool _isDiskFull(FileSystemException e) {
+    final code = e.osError?.errorCode;
+    // ENOSPC on Linux; ERROR_HANDLE_DISK_FULL / ERROR_DISK_FULL on Windows.
+    return code == 28 || code == 39 || code == 112;
+  }
+
+  Future<void> _serverError(HttpRequest req, Object e) async {
+    stderr.writeln('tvsaver upload error ${req.method} ${req.uri.path}: $e');
+    req.response.persistentConnection = false;
+    await _plain(req, 500);
+  }
+
+  /// The client is gone: nothing to answer.
+  Future<void> _dropQuietly(HttpRequest req) async {
+    try {
+      req.response
+          .detachSocket(writeHeaders: false)
+          .then((s) => s.destroy(), onError: (Object _) {});
+    } catch (_) {}
   }
 
   Future<void> _startUpload(HttpRequest req, DeviceInfo? device) async {
     final Object? body;
     try {
       final bytes = await req.fold<List<int>>(<int>[], (a, b) {
-        if (a.length + b.length > 64 * 1024) throw const FormatException();
+        if (a.length + b.length > 64 * 1024) throw const _BodyTooLarge();
         return a..addAll(b);
       });
       body = jsonDecode(utf8.decode(bytes));
+    } on _BodyTooLarge {
+      req.response.persistentConnection = false;
+      return _plain(req, 413);
     } on FormatException {
       return _plain(req, 400);
+    } on HttpException {
+      return _dropQuietly(req); // client went away
+    } on SocketException {
+      return _dropQuietly(req);
     }
     if (body is! Map) return _plain(req, 400);
     final name = body['name'];
@@ -352,7 +407,10 @@ class PiServer {
         mime: mime,
         deviceId: device?.id ?? '',
       );
-      return await _json(req, 200, {'uploadId': r.uploadId, 'received': r.received});
+      return await _json(req, 200, {
+        'uploadId': r.uploadId,
+        'received': r.received,
+      });
     } on UploadRefused catch (r) {
       return await _refuse(req, r);
     }

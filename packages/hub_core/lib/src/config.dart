@@ -36,10 +36,15 @@ class ServerConfig {
       port: int.tryParse(e['TVSAVER_PORT'] ?? '') ?? 8772,
       serverId: e['TVSAVER_ID'] ?? Platform.localHostname,
       storageCapBytes:
-          int.tryParse(e['TVSAVER_STORAGE_CAP_BYTES'] ?? '') ??
+          _positiveInt(e['TVSAVER_STORAGE_CAP_BYTES']) ??
           kDefaultStorageCapBytes,
     );
   }
+}
+
+int? _positiveInt(String? v) {
+  final n = int.tryParse(v ?? '');
+  return n != null && n > 0 ? n : null;
 }
 
 String? _nonEmpty(String? v) => (v == null || v.isEmpty) ? null : v;

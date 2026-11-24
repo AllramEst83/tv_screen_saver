@@ -79,9 +79,8 @@ Future<void> main(List<String> args) async {
   var port = 8772;
   var chunkMb = 16;
   for (var i = 0; i < args.length; i++) {
-    String value() => i + 1 < args.length
-        ? args[++i]
-        : _fail('${args[i]} needs a value');
+    String value() =>
+        i + 1 < args.length ? args[++i] : _fail('${args[i]} needs a value');
     switch (args[i]) {
       case '--host':
         host = value();
@@ -193,6 +192,7 @@ Future<void> main(List<String> args) async {
   final route = '/media/uploads/$uploadId';
   final timer = Stopwatch()..start();
   var failures = 0;
+  var stuck = 0;
   final raf = file.openSync();
   try {
     while (offset < total) {
@@ -207,16 +207,29 @@ Future<void> main(List<String> args) async {
           headers: {'Content-Range': 'bytes $offset-${offset + n - 1}/$total'},
         );
         if (code == 200) {
-          offset = body['received'] as int;
+          final got = body['received'];
+          if (got is! int) _fail('the Pi answered 200 without a byte count');
+          offset = got;
           failures = 0;
+          stuck = 0;
         } else if (code == 201) {
           offset = total;
           stdout.writeln(
             '\rstored as ${body['id']} (${_size(total)}, sha256 matches)    ',
           );
         } else if (code == 416) {
-          final m = RegExp(r'\*/(\d+)').firstMatch(headers['content-range'] ?? '');
-          offset = int.parse(m?.group(1) ?? '$offset');
+          final m = RegExp(
+            r'\*/(\d+)',
+          ).firstMatch(headers['content-range'] ?? '');
+          if (m == null) {
+            _fail('the Pi refused the offset (416) without saying where it is');
+          }
+          final at = int.parse(m.group(1)!);
+          if (at == offset && ++stuck >= 5) {
+            _fail('the Pi keeps answering 416 at ${_size(at)}; giving up');
+          }
+          if (at != offset) stuck = 0;
+          offset = at;
           stdout.writeln('\rPi is at ${_size(offset)}, adjusting');
         } else if (code == 422) {
           _fail('checksum mismatch: the Pi deleted the partial file (422)');

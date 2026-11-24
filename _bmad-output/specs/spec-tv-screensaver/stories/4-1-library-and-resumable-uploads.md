@@ -2,7 +2,7 @@
 title: 'Library and resumable uploads'
 type: 'feature'
 created: '2026-11-24'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '25f2544f7e9cbb71f5ff687967e9b08d22149a98'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -67,11 +67,11 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `hub_database.dart` + `.g.dart` -- tables, queries, schema 2, `onUpgrade`
-- [ ] `library_store.dart`, `server.dart` -- upload, resume, verify, expiry, delete, variants, caps, startup import
-- [ ] `library_module.dart`, `playlist_source.dart`, `config.dart`, exports -- module, library-backed `all`, cap setting
-- [ ] `test/**` -- every matrix row; resume across a server restart; upgrade from a real version 1 file
-- [ ] `tool/upload.dart`, docs -- dev uploader, `modules.md`, `BUILD_AND_DEPLOY.md`
+- [x] `hub_database.dart` + `.g.dart` -- tables, queries, schema 2, `onUpgrade`
+- [x] `library_store.dart`, `server.dart` -- upload, resume, verify, expiry, delete, variants, caps, startup import
+- [x] `library_module.dart`, `playlist_source.dart`, `config.dart`, exports -- module, library-backed `all`, cap setting
+- [x] `test/**` -- every matrix row; resume across a server restart; upgrade from a real version 1 file
+- [x] `tool/upload.dart`, docs -- dev uploader, `modules.md`, `BUILD_AND_DEPLOY.md`
 
 **Acceptance Criteria:**
 - Given `dart analyze` and `dart test` in `packages/hub_core`, then both pass and `dart compile exe bin/pi_server.dart` succeeds.
@@ -80,9 +80,29 @@ context:
 
 ## Implementation Notes
 
+- Schema 2 adds `LibraryItems` and `Uploads` (upgrade from 1 keeps devices and pairings). `all` is the library's video items; a throttled `reconcile()` (start, hourly, before the playlist answers) imports hand-copied files (skips files younger than 10 s) and prunes rows whose file is gone, until the 4-5 inbox watcher. Last chunk verifies from a running sha256; a restart falls back to one disk rehash. Deleting the playing item moves the player on. Display tokens may delete (owner-equivalent). Storage cap is decimal bytes. Disk-full to 507 is untested (cannot provoke it). Not run on the real Pi: the 4 GB interrupt-and-resume check and the version 1 database upgrade.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+| Finding | Verdict | Route | Evidence |
+| --- | --- | --- | --- |
+| Concurrency: HEAD/resume POST truncates a part file under an active PUT; stale row read before the busy lock; two POSTs with one sha256 hit the unique constraint (500); concurrent POSTs pass the cap together | high | patch | `_syncReceived`, `putChunk`, `startUpload` as filed by edge and blind hunters |
+| Last chunk hashes the whole file in the request (tens of seconds to minutes for GBs on the Pi) | medium | patch | `_finish` re-reads the file; hash incrementally while chunks arrive |
+| `_finish` renames before the DB commit (orphan file, stale upload row); 16-hex id collision can overwrite another file | medium | patch | rename then transaction |
+| Only `UploadRefused` maps to a status; disk-full, body abort, DB errors and oversize POST body give unspecified errors | medium | patch | `_handleUploads` catch scope |
+| New files copied into the media dir (the scp workflow from 2-3) do not appear in `all` until restart; rows of hand-removed files stay and fail to play; files still being copied imported early | high | patch | Regression vs 3-4: `MediaDirPlaylistSource` listed live |
+| Deleting the playing or queued item leaves the player on a stale id | medium | patch | `deleteItem` does not notify `PlayerModule` |
+| Duplicate loose file stays `pending:` forever and is re-hashed every start | medium | patch | `_hashPending` `continue` |
+| Delete: variant sweep by prefix can hit another item's variants; row deleted before file | low | patch | `startsWith('$id.')` |
+| Mime with parameters gets 415; ids starting with `.` reachable on `/media`; cap env accepts 0/negative/garbage, in-flight uploads not counted, unit undocumented; hash loop dies on one unreadable file; part file deleted by expiry between create and insert | low | patch | Small guards |
+| `tool/upload.dart`: 416 loop without progress, non-int `received` | low | patch | Dev tool on the manual-test path |
+| Missing tests: crash-recovery in `startUpload` (three branches), env cap, display delete via HTTP and module, new concurrency and reconcile paths | medium | patch | Verification-gap evidence |
+| Display token may delete (HTTP and module) vs "owner only" | low | patch (doc + test) | Display is owner-equivalent by architecture; pin it |
+| Expiry keyed on `createdAt`, not last activity | low | reject | Matches the spec text; a 50 GB upload takes well under 24 h |
+| Mime trusted, no content sniffing; `/media` not gated on a row; schema rollback; paging; audit; revoked token during a PUT; PNG/WebP sniff and HEAD variant tests; `LibraryPlaylistSource` fallback test | low | reject | No named harm in this story; sniffing is 4-2 |
+| Story file status/checkboxes empty | false | reject | Workflow updates the story after review |
 
 ## Verification
 

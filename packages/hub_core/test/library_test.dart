@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:hub_core/hub_core.dart';
 import 'package:sqlite3/sqlite3.dart' as sql;
 import 'package:test/test.dart';
@@ -60,6 +61,8 @@ void main() {
         db: database,
         now: () => clock,
         freeBytes: freeBytes,
+        looseFileGrace: Duration.zero,
+        reconcileInterval: Duration.zero,
       ),
     );
     await server.start(address: '127.0.0.1');
@@ -185,6 +188,8 @@ void main() {
       expect(asJson(b1)['received'], 4000);
       final (p2, b2) = await putChunk(id, data.sublist(4000), 4000, 10000);
       expect(p2.statusCode, 201);
+      // The running hash verified it: the file was not read again.
+      expect(server.library.diskHashes, 0);
       final done = asJson(b2);
       final sha = shaOf(data);
       expect(done['id'], '${sha.substring(0, 16)}.jpg');
@@ -256,6 +261,8 @@ void main() {
       final (fin, body) = await putChunk(id, data.sublist(4000), 4000, 9000);
       expect(fin.statusCode, 201, reason: utf8.decode(body));
       expect(asJson(body)['sha256'], shaOf(data));
+      // The running hash did not survive the restart: one disk rehash.
+      expect(server.library.diskHashes, 1);
     });
 
     test('bad checksum: partial deleted, 422', () async {
@@ -617,6 +624,308 @@ void main() {
         (await owner.request('library.delete', {'id': id}))['code'],
         'not_found',
       );
+    });
+  });
+
+  group('crash recovery and concurrency', () {
+    Future<String> craftUpload(
+      List<int> data, {
+      required List<int> partContent,
+      required int received,
+    }) async {
+      final id = 'crafted${shaOf(data).substring(0, 6)}';
+      Directory('$mediaDir/.uploads').createSync(recursive: true);
+      File('$mediaDir/.uploads/$id.part').writeAsBytesSync(partContent);
+      await server.db.insertUpload(
+        UploadsCompanion.insert(
+          id: id,
+          name: 'crafted.jpg',
+          bytes: data.length,
+          sha256: shaOf(data),
+          mime: 'image/jpeg',
+          received: Value(received),
+          createdAt: clock.millisecondsSinceEpoch,
+        ),
+      );
+      return id;
+    }
+
+    test('row complete with a full part file: 409 {id}, file, added', () async {
+      await startServer();
+      final phone = await pairPhone();
+      final data = bytesOf(3000);
+      final id = await craftUpload(
+        data,
+        partContent: data,
+        received: data.length,
+      );
+      final (r, j) = await startUpload(data);
+      final itemId = '${shaOf(data).substring(0, 16)}.jpg';
+      expect(r.statusCode, 409);
+      expect(j['id'], itemId);
+      expect(File('$mediaDir/$itemId').readAsBytesSync(), data);
+      expect(File('$mediaDir/.uploads/$id.part').existsSync(), isFalse);
+      expect(await server.db.uploadById(id), isNull);
+      final ev = await phone.expectEvent('library.added');
+      expect((ev['data'] as Map)['id'], itemId);
+    });
+
+    test(
+      'row complete with wrong content: 422, part and row removed',
+      () async {
+        await startServer();
+        final data = bytesOf(3000);
+        final id = await craftUpload(
+          data,
+          partContent: bytesOf(3000, 99),
+          received: data.length,
+        );
+        final (r, _) = await startUpload(data);
+        expect(r.statusCode, 422);
+        expect(File('$mediaDir/.uploads/$id.part').existsSync(), isFalse);
+        expect(await server.db.uploadById(id), isNull);
+        expect(await server.db.allLibraryItems(), isEmpty);
+      },
+    );
+
+    test(
+      'part file longer or shorter than received: HEAD corrects it',
+      () async {
+        await startServer();
+        final data = bytesOf(3000);
+        final id = await craftUpload(
+          data,
+          partContent: data.sublist(0, 2000),
+          received: 1000,
+        );
+        var (h, _) = await send('HEAD', '/media/uploads/$id');
+        expect(h.headers.value('Upload-Offset'), '1000');
+        expect(File('$mediaDir/.uploads/$id.part').lengthSync(), 1000);
+
+        File(
+          '$mediaDir/.uploads/$id.part',
+        ).writeAsBytesSync(data.sublist(0, 400));
+        (h, _) = await send('HEAD', '/media/uploads/$id');
+        expect(h.headers.value('Upload-Offset'), '400');
+        expect((await server.db.uploadById(id))!.received, 400);
+      },
+    );
+
+    test(
+      'final file present but the part file gone is recovered at start',
+      () async {
+        fileDb = HubDatabase.open('${tmp.path}/hub.db');
+        await startServer(db: fileDb);
+        final data = bytesOf(2500);
+        final id = await craftUpload(
+          data,
+          partContent: data,
+          received: data.length,
+        );
+        await server.stop();
+        started = false;
+        final itemId = '${shaOf(data).substring(0, 16)}.jpg';
+        File('$mediaDir/.uploads/$id.part').renameSync('$mediaDir/$itemId');
+        await startServer(db: fileDb);
+        expect((await fileDb!.libraryItem(itemId))!.sha256, shaOf(data));
+        expect(await fileDb!.allUploads(), isEmpty);
+      },
+    );
+
+    test('an id collision with a file without a row is refused', () async {
+      await startServer();
+      final data = bytesOf(800);
+      File(
+        '$mediaDir/${shaOf(data).substring(0, 16)}.jpg',
+      ).writeAsBytesSync([1]);
+      final (_, j) = await startUpload(data);
+      final (r, body) = await putChunk(j['uploadId'] as String, data, 0, 800);
+      expect(r.statusCode, 409);
+      expect(asJson(body)['code'], 'collision');
+      expect(await server.db.allUploads(), isEmpty);
+    });
+
+    test('parallel starts: one upload per sha, and the cap holds', () async {
+      await startServer(cap: 1500);
+      final data = bytesOf(1000);
+      final both = await Future.wait([startUpload(data), startUpload(data)]);
+      expect(both[0].$2['uploadId'], both[1].$2['uploadId']);
+      expect(await server.db.allUploads(), hasLength(1));
+
+      final other = bytesOf(1000, 4);
+      final (r, _) = await startUpload(other);
+      expect(r.statusCode, 507); // 1000 reserved by the first upload
+    });
+
+    test('part files without a row: kept for an hour, then removed', () async {
+      await startServer();
+      File('$mediaDir/.uploads/fresh.part').writeAsBytesSync([1]);
+      File('$mediaDir/.uploads/old.part').writeAsBytesSync([1]);
+      File(
+        '$mediaDir/.uploads/old.part',
+      ).setLastModifiedSync(DateTime.utc(2020));
+      await server.library.expireStaleUploads();
+      expect(File('$mediaDir/.uploads/fresh.part').existsSync(), isTrue);
+      expect(File('$mediaDir/.uploads/old.part').existsSync(), isFalse);
+    });
+
+    test(
+      'mime parameters are ignored; dot ids and big bodies are refused',
+      () async {
+        await startServer();
+        final data = bytesOf(100);
+        final (r, _) = await startUpload(data, mime: ' Image/JPEG; charset=x ');
+        expect(r.statusCode, 200);
+        final (d, _) = await send('GET', '/media/.hidden/full');
+        expect(d.statusCode, 400);
+        final (big, _) = await send(
+          'POST',
+          '/media/uploads',
+          body: List.filled(70 * 1024, 32),
+        );
+        expect(big.statusCode, 413);
+      },
+    );
+  });
+
+  group('reconcile', () {
+    test('files added or removed by hand show up in all', () async {
+      File('$mediaDir/a.mp4').writeAsBytesSync(bytesOf(10));
+      await startServer();
+      final phone = await pairPhone();
+      expect(await server.playlists.itemIds('all'), ['a.mp4']);
+      File('$mediaDir/b.mp4').writeAsBytesSync(bytesOf(11));
+      expect(await server.playlists.itemIds('all'), ['a.mp4', 'b.mp4']);
+      File('$mediaDir/a.mp4').deleteSync();
+      expect(await server.playlists.itemIds('all'), ['b.mp4']);
+      expect(await server.db.libraryItem('a.mp4'), isNull);
+      final ev = await phone.expectEvent('library.removed');
+      expect((ev['data'] as Map)['id'], 'a.mp4');
+    });
+
+    test('a recent file waits for the grace period', () async {
+      final config = ServerConfig(
+        mediaDir: mediaDir,
+        tokenFile: '${tmp.path}/token',
+        port: 0,
+      );
+      final db = HubDatabase.inMemory();
+      addTearDown(db.close);
+      final store = LibraryStore(config: config, db: db);
+      File('$mediaDir/new.mp4').writeAsBytesSync([1]);
+      expect(await store.importLooseFiles(), 0);
+      File('$mediaDir/new.mp4').setLastModifiedSync(
+        DateTime.now().subtract(const Duration(minutes: 1)),
+      );
+      expect(await store.importLooseFiles(), 1);
+      await store.stop();
+    });
+
+    test(
+      'a duplicate loose file is marked once; an unreadable one does not stop the rest',
+      () async {
+        final data = bytesOf(60);
+        File('$mediaDir/one.mp4').writeAsBytesSync(data);
+        File('$mediaDir/two.mp4').writeAsBytesSync(data);
+        File('$mediaDir/zlast.mp4').writeAsBytesSync(bytesOf(61));
+        Directory('$mediaDir/bad.mp4').createSync();
+        final db = HubDatabase.inMemory();
+        addTearDown(db.close);
+        await db.insertLibraryItem(
+          LibraryItemsCompanion.insert(
+            id: 'bad.mp4',
+            kind: 'video',
+            name: 'bad.mp4',
+            sha256: 'pending:bad.mp4',
+            bytes: 1,
+            createdAt: 1,
+          ),
+        );
+        await startServer(db: db);
+        await server.library.hashingDone;
+        final rows = {
+          for (final r in await db.allLibraryItems()) r.id: r.sha256,
+        };
+        expect(rows['zlast.mp4'], shaOf(bytesOf(61)));
+        expect(rows['bad.mp4'], 'pending:bad.mp4');
+        final marked = rows.entries.where((e) => e.value.startsWith('dup:'));
+        expect(marked, hasLength(1));
+        expect(await db.pendingLibraryItems(), hasLength(1)); // only bad.mp4
+      },
+    );
+  });
+
+  group('delete and the player', () {
+    test(
+      'deleting the playing item moves on; the last one goes idle',
+      () async {
+        File('$mediaDir/a.mp4').writeAsBytesSync(bytesOf(10));
+        File('$mediaDir/b.mp4').writeAsBytesSync(bytesOf(11));
+        await startServer();
+        final tv = await TestPhone.connect(server.port);
+        addTearDown(tv.close);
+        await tv.helloAsDisplay();
+        final phone = await pairPhone();
+        final play = await phone.request('player.play', {'playlistId': 'all'});
+        expect(play['t'], HubMsg.ok, reason: '$play');
+        final first = await tv.waitFor((m) => m['t'] == 'display.load');
+        expect(first['itemId'], 'a.mp4');
+
+        final (d, _) = await send('DELETE', '/media/a.mp4');
+        expect(d.statusCode, 200);
+        final next = await tv.waitFor(
+          (m) => m['t'] == 'display.load' && m['itemId'] == 'b.mp4',
+        );
+        expect(next['startAt'], 0);
+
+        final (d2, _) = await send('DELETE', '/media/b.mp4');
+        expect(d2.statusCode, 200);
+        final stop = await tv.waitFor(
+          (m) => m['t'] == 'display.control' && m['action'] == 'stop',
+        );
+        expect(stop['action'], 'stop');
+      },
+    );
+
+    test(
+      'display is owner-equivalent for delete; a controller is not',
+      () async {
+        await startServer();
+        final tv = await TestPhone.connect(server.port);
+        addTearDown(tv.close);
+        await tv.helloAsDisplay();
+        await pairPhone();
+        final controller = await pairPhone();
+        final id1 = await uploadAll(bytesOf(300, 1));
+        final id2 = await uploadAll(bytesOf(300, 2));
+        final (c, _) = await send(
+          'DELETE',
+          '/media/$id1',
+          bearer: controller.token,
+        );
+        expect(c.statusCode, 403);
+        final (d, _) = await send('DELETE', '/media/$id1', bearer: tv.token);
+        expect(d.statusCode, 200);
+        final denied = await controller.request('library.delete', {'id': id2});
+        expect(denied['code'], 'forbidden');
+        final viaWs = await tv.request('library.delete', {'id': id2});
+        expect(viaWs['t'], HubMsg.ok, reason: '$viaWs');
+      },
+    );
+  });
+
+  group('config', () {
+    test('TVSAVER_STORAGE_CAP_BYTES: positive integers only', () {
+      int cap(String? v) => ServerConfig.fromEnvironment({
+        'HOME': '/h',
+        'TVSAVER_STORAGE_CAP_BYTES': ?v,
+      }).storageCapBytes;
+      expect(cap(null), 90000000000);
+      expect(cap('5000000000'), 5000000000);
+      expect(cap('0'), 90000000000);
+      expect(cap('-4'), 90000000000);
+      expect(cap('lots'), 90000000000);
+      expect(cap(''), 90000000000);
     });
   });
 
