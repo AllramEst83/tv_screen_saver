@@ -246,8 +246,51 @@ class LibraryStore {
 
   int get _nowMs => _now().millisecondsSinceEpoch;
 
+  Future<void> _emitChain = Future.value();
+
+  /// Completes when every queued event has been sent (tests).
+  Future<void> get eventsSettled =>
+      _emitChain.then((_) => Future<void>.delayed(Duration.zero));
+
+  /// Queues an event; each one carries the Pi's true `storage` figure
+  /// (stored bytes plus unfinished uploads) and keeps its order.
   void _emit(String kind, Map<String, Object?> data) {
-    if (!_events.isClosed) _events.add(LibraryEvent(kind, data));
+    _emitChain = _emitChain.then((_) async {
+      if (_events.isClosed) return;
+      Map<String, Object?> out = data;
+      try {
+        out = {...data, 'storage': await storageJson()};
+      } catch (_) {
+        // The database may be closing: send the event without the figure.
+      }
+      if (!_events.isClosed) _events.add(LibraryEvent(kind, out));
+    });
+  }
+
+  /// `{usedBytes, capBytes}` now.
+  Future<Map<String, Object?>> storageJson() async => {
+    'usedBytes': await usedBytes(),
+    'capBytes': config.storageCapBytes,
+  };
+
+  /// Tells the phones the storage figure after the cap changed.
+  void announceStorage() => _emit('library.storage', {});
+
+  /// Sets `cacheRequired` of every stored video from its bitrate and the
+  /// current streaming ceiling (database only, no probing) and announces each
+  /// item that changed.
+  Future<void> reevaluateCacheRequired() async {
+    for (final r in await db.allLibraryItems()) {
+      if (r.kind != 'video' || r.bitrate == null) continue;
+      final want = worker.isAboveCeiling(r.bitrate);
+      if (want == r.cacheRequired) continue;
+      await db.updateLibraryItemMedia(
+        r.id,
+        LibraryItemsCompanion(cacheRequired: Value(want)),
+      );
+      final row = await db.libraryItem(r.id);
+      if (row != null) _emit('library.updated', libraryItemJson(row));
+    }
   }
 
   void _removed(String id) {
@@ -288,6 +331,7 @@ class LibraryStore {
     await worker.stop();
     await _hashing.catchError((Object _) {});
     await _reconcileChain.catchError((Object _) {});
+    await _emitChain.catchError((Object _) {});
   }
 
   // ---- reading ----
@@ -300,10 +344,7 @@ class LibraryStore {
 
   Future<Map<String, Object?>> snapshot() async => {
     'items': [for (final r in await items()) libraryItemJson(r)],
-    'storage': {
-      'usedBytes': await usedBytes(),
-      'capBytes': config.storageCapBytes,
-    },
+    'storage': await storageJson(),
   };
 
   /// Ids of the playable video items (not `unsupported`) sorted by name

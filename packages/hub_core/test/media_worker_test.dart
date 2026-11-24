@@ -206,6 +206,7 @@ void main() {
         expect(row.cacheRequired, isFalse);
         expect(File(store.variantPath(item.id, 'poster')).existsSync(), isTrue);
         expect(File(store.variantPath(item.id, 'thumb')).existsSync(), isTrue);
+        await store.eventsSettled;
         final updated = events.where((e) => e.kind == 'library.updated').last;
         expect(updated.data['id'], item.id);
         expect(updated.data['state'], 'ready');
@@ -556,6 +557,7 @@ void main() {
       await startStore();
       final item = await upload('a.mp4', 'video/mp4');
       await store.worker.idle;
+      await store.eventsSettled;
       expect(
         events.where(
           (e) => e.kind == 'library.updated' && e.data['id'] == item.id,

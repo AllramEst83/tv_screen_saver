@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -83,7 +85,7 @@ void main() {
       final ok = await a.controller.renameThisPhone('  Kay Pixel  ');
       expect(ok.ok, isTrue);
       await until(() => b.controller.devices.any((d) => d.name == 'Kay Pixel'));
-      expect(a.controller.me!.name, anyOf('Kay Pixel', 'Test phone'));
+      await until(() => a.controller.me!.name == 'Kay Pixel');
     });
 
     test('the owner removes a controller phone; a controller cannot', () async {
@@ -97,6 +99,66 @@ void main() {
       final ok = await owner.controller.forgetDevice(otherId);
       expect(ok.ok, isTrue);
       await until(() => !owner.controller.devices.any((d) => d.id == otherId));
+    });
+
+    test(
+      'a phone the owner removes ends on Connect with a plain message',
+      () async {
+        final owner = await pair();
+        final other = await pair();
+        final r = await owner.controller.forgetDevice(other.controller.me!.id);
+        expect(r.ok, isTrue);
+        await other.waitFor(PhoneScreen.connect);
+        await until(() => !other.controller.hasPairing);
+        expect(
+          other.controller.statusText,
+          'This phone was removed from the Pi',
+        );
+        expect(other.controller.hasSettings, isFalse);
+        expect(other.controller.hasLibrary, isFalse);
+        expect(owner.controller.screen, PhoneScreen.home);
+      },
+    );
+
+    test(
+      'Forget all phones sends every phone, the owner included, to Connect',
+      () async {
+        final owner = await pair();
+        final other = await pair();
+        final r = await owner.controller.forgetAllPhones();
+        expect(r.ok, isTrue);
+        for (final p in [owner, other]) {
+          await p.waitFor(PhoneScreen.connect);
+          await until(() => !p.controller.hasPairing);
+          expect(p.controller.statusText, 'This phone was removed from the Pi');
+        }
+      },
+    );
+
+    test('Close app twice closes once; when the app returns it connects '
+        'again and takes the lock', () async {
+      var pops = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+            if (call.method == 'SystemNavigator.pop') pops++;
+            return null;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      final p = await pair();
+      await Future.wait([p.controller.closeApp(), p.controller.closeApp()]);
+      expect(pops, 1);
+      expect(p.client.state.value.phase, isNot(HubConnectionPhase.connected));
+      final before = p.lock.acquired;
+      p.controller.setForeground(false);
+      p.controller.setForeground(true);
+      await until(
+        () => p.client.state.value.phase == HubConnectionPhase.connected,
+      );
+      expect(p.lock.acquired, greaterThan(before));
+      await until(() => p.lock.held == 0);
     });
 
     test(
@@ -267,11 +329,21 @@ void main() {
         find.byKey(const Key('setting-streamingCeilingMbps')),
         '60',
       );
+      var saves = 0;
+      final sub = rig.settings!.changes.listen((_) => saves++);
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.runAsync(
         () => until(() => rig.settings!.values['streamingCeilingMbps'] == 60),
       );
       await tester.pumpAndSettle();
+      // Done and the focus loss that follows save once.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 200)),
+      );
+      unawaited(sub.cancel());
+      expect(saves, 1);
       expect(find.text('Saved'), findsOneWidget);
       await finish(tester);
     });
@@ -317,8 +389,9 @@ void main() {
       expect(phone.controller.me!.role, DeviceRole.controller);
       await pump(tester);
       await open(tester, 'nav-settings');
-      expect(find.byKey(const Key('owner-note')), findsOneWidget);
-      expect(find.text('Only the owner can change this'), findsWidgets);
+      // One note at the top of each pane that has controls.
+      expect(find.byKey(const Key('owner-note')), findsNWidgets(4));
+      expect(find.text('Only the owner can change this'), findsNWidgets(4));
       expect(
         tester
             .widget<Slider>(find.byKey(const Key('imageSeconds-slider')))
@@ -404,10 +477,85 @@ void main() {
       expect(find.byKey(const Key('banner-offline')), findsOneWidget);
       expect(find.byKey(const Key('banner-retry')), findsOneWidget);
 
+      phone.client.state.value = state.copyWith(
+        phase: HubConnectionPhase.appNotOpen,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byKey(const Key('banner-server')), findsOneWidget);
+      expect(
+        find.text('The TV Saver server is not running on the Pi'),
+        findsOneWidget,
+      );
+
       phone.client.state.value = state;
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.byKey(const Key('banner-offline')), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('Storage pane follows the Pi: snapshot, events and a lowered '
+        'cap', (tester) async {
+      tall(tester);
+      rig = (await tester.runAsync(
+        () => Rig.start(withSettings: true, withLibrary: true),
+      ))!;
+      await tester.runAsync(() async {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        for (final (id, bytes) in [('a.mp4', 5000), ('b.mp4', 3000)]) {
+          await rig.db.insertLibraryItem(
+            LibraryItemsCompanion.insert(
+              id: id,
+              kind: 'video',
+              name: id,
+              sha256: id.padRight(64, '0'),
+              bytes: bytes,
+              createdAt: now,
+            ),
+          );
+        }
+      });
+      await connect(tester, phone);
+      await tester.runAsync(() => until(() => phone.controller.hasLibrary));
+      await pump(tester);
+      await open(tester, 'nav-settings');
+      String text() =>
+          tester.widget<Text>(find.byKey(const Key('storage-text'))).data!;
+      expect(text(), '8 KB of 10 KB used');
+      expect(find.byKey(const Key('storage-over')), findsNothing);
+
+      // An event carries the Pi's new figure (no bytes are added up here).
+      await tester.runAsync(() async {
+        await rig.library!.deleteItem('b.mp4');
+        await until(() => phone.controller.storageUsedBytes == 5000);
+      });
+      await tester.pump();
+      expect(text(), '5 KB of 10 KB used');
+
+      // A lowered cap arrives as a storage event: over the limit.
+      await tester.runAsync(() async {
+        await phone.controller.updateSettings({'storageCapBytes': 4000});
+        await until(() => phone.controller.storageCapBytes == 4000);
+      });
+      await tester.pump();
+      expect(text(), '5 KB of 4 KB used');
+      expect(find.byKey(const Key('storage-over')), findsOneWidget);
+      expect(find.textContaining('Over the limit'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('Storage pane says Loading while the Pi has sent no figure', (
+      tester,
+    ) async {
+      tall(tester);
+      await setUpRig(tester); // no library module
+      await connect(tester, phone);
+      await pump(tester);
+      await open(tester, 'nav-settings');
+      expect(find.byKey(const Key('storage-text')), findsNothing);
+      expect(find.text('Loading…'), findsOneWidget);
+      expect(find.textContaining('0 KB'), findsNothing);
       await finish(tester);
     });
 

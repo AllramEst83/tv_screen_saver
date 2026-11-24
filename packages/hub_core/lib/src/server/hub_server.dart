@@ -723,9 +723,9 @@ class HubServer {
       final trimmed = rawName is String ? rawName.trim() : '';
       c.clientName = trimmed.isEmpty
           ? (isDisplayHello ? 'TV' : 'Phone')
-          : (trimmed.length > DevicesModule.maxNameLength
-                ? trimmed.substring(0, DevicesModule.maxNameLength).trimRight()
-                : trimmed);
+          : String.fromCharCodes(
+              trimmed.runes.take(DevicesModule.maxNameLength),
+            ).trimRight();
 
       // Path A: reconnect with a saved token.
       final token = msg['token'];

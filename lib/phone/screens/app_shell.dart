@@ -206,9 +206,11 @@ class _StatusBanner extends StatelessWidget {
         ),
         text: 'Reconnecting…',
       ),
-      LinkStatus.offline => _bar(
+      LinkStatus.offline || LinkStatus.serverDown => _bar(
         context,
-        key: const Key('banner-offline'),
+        key: Key(
+          status == LinkStatus.offline ? 'banner-offline' : 'banner-server',
+        ),
         color: theme.colorScheme.errorContainer,
         onColor: theme.colorScheme.onErrorContainer,
         leading: Icon(
@@ -216,7 +218,9 @@ class _StatusBanner extends StatelessWidget {
           size: 20,
           color: theme.colorScheme.onErrorContainer,
         ),
-        text: "Can't reach the Pi",
+        text: status == LinkStatus.offline
+            ? "Can't reach the Pi"
+            : 'The TV Saver server is not running on the Pi',
         action: TextButton(
           key: const Key('banner-retry'),
           style: TextButton.styleFrom(
@@ -369,6 +373,7 @@ class _DrawerHeader extends StatelessWidget {
       LinkStatus.tvOff => ('TV off', scheme.tertiary),
       LinkStatus.reconnecting => ('Reconnecting…', scheme.tertiary),
       LinkStatus.offline => ('Offline', scheme.error),
+      LinkStatus.serverDown => ('Server not running', scheme.error),
     };
     final me = controller.me;
     return Padding(

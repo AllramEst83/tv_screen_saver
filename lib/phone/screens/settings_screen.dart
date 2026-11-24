@@ -41,13 +41,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Object? _value(String key) =>
       _optimistic.containsKey(key) ? _optimistic[key] : c.settings[key];
 
+  /// The newest request per key: an older reply must not undo a newer
+  /// choice.
+  final Map<String, int> _seq = {};
+
   Future<void> _save(String key, Object value) async {
+    final seq = _seq[key] = (_seq[key] ?? 0) + 1;
     setState(() {
       _optimistic[key] = value;
       _errors.remove(key);
     });
     final r = await c.updateSettings({key: value});
-    if (!mounted) return;
+    if (!mounted || _seq[key] != seq) return;
     setState(() {
       _optimistic.remove(key);
       if (!r.ok) _errors[key] = r.message ?? 'The change was refused';
@@ -100,6 +105,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       icon: Icons.slideshow_outlined,
       intro: 'How photos and videos appear on the TV.',
       children: [
+        _OwnerLine(controller: c),
         _DurationSlider(
           key: const Key('setting-imageSeconds'),
           seconds: seconds,
@@ -163,7 +169,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _storage(bool enabled) {
     final theme = Theme.of(context);
-    final cap = (_value('storageCapBytes') as int?) ?? 0;
+    final cap = c.storageCapBytes;
     final used = c.storageUsedBytes;
     final over = cap > 0 && used > cap;
     final ratio = cap <= 0 ? 0.0 : (used / cap).clamp(0.0, 1.0);
@@ -173,7 +179,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       icon: Icons.photo_library_outlined,
       intro: 'How much room your photos and videos may take on the Pi.',
       children: [
-        if (!c.hasLibrary)
+        _OwnerLine(controller: c),
+        if (!c.hasLibrary || cap <= 0)
           const InfoRow(label: 'Used', value: 'Loading…')
         else ...[
           Text(
@@ -215,7 +222,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           label: 'Storage limit',
           unit: 'GB',
           help: 'The most the library may use on the Pi.',
-          valueInUnit: cap / 1e9,
+          valueInUnit: (((_value('storageCapBytes') as int?) ?? 0)) / 1e9,
           scale: 1e9,
           decimals: true,
           min: c.limitFor('storageCapBytes')?['min'],
@@ -240,6 +247,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       icon: Icons.wifi,
       intro: 'How videos travel from the Pi to the TV.',
       children: [
+        _OwnerLine(controller: c),
         _NumberField(
           key: const Key('setting-streamingCeilingMbps'),
           label: 'Streaming limit',
@@ -342,10 +350,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 16),
         Text('Paired devices', style: theme.textTheme.labelLarge),
         DeviceList(controller: c),
-        const SizedBox(height: 8),
-        if (c.isLinked && c.me != null && !c.canChangeSettings)
-          const _FieldError(_ownerNote, plain: true),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
+        _OwnerLine(controller: c),
         OutlinedButton.icon(
           key: const Key('forget-all'),
           style: OutlinedButton.styleFrom(
@@ -394,9 +400,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         content: const Text(
           'This phone will stop controlling it. Other phones and the TV '
           'are not affected, and the Pi keeps the device record of this phone. '
-          'If you are the only owner, you may need `tvsaver admin '
-          'reset-pairings` on the Pi or "Forget all phones" on the TV to '
-          'become owner again.',
+          'To control it again, ask the owner, or use Forget all phones on '
+          'the TV.',
         ),
         actions: [
           TextButton(
@@ -450,13 +455,11 @@ class _AccessNote extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = controller;
-    if (c.canChangeSettings) return const SizedBox.shrink();
+    if (c.isLinked) return const SizedBox.shrink();
     final theme = Theme.of(context);
-    final offline = !c.isLinked;
-    final text = offline
-        ? 'The Pi is not reachable. You see the last values, and nothing can '
-              'be changed until it is back.'
-        : 'You can see every setting. Only the owner can change them.';
+    const text =
+        'The Pi is not reachable. You see the last values, and nothing can '
+        'be changed until it is back.';
     return Padding(
       padding: const EdgeInsets.only(bottom: kGap),
       child: DecoratedBox(
@@ -470,17 +473,14 @@ class _AccessNote extends StatelessWidget {
             key: const Key('owner-note'),
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                offline ? Icons.cloud_off_outlined : Icons.lock_outline,
-                size: 20,
-              ),
+              const Icon(Icons.cloud_off_outlined, size: 20),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      offline ? 'Read only for now' : _ownerNote,
+                      'Read only for now',
                       style: theme.textTheme.titleSmall,
                     ),
                     const SizedBox(height: 2),
@@ -496,13 +496,47 @@ class _AccessNote extends StatelessWidget {
   }
 }
 
+/// "Only the owner can change this", at the top of a pane, for a controller.
+class _OwnerLine extends StatelessWidget {
+  const _OwnerLine({required this.controller});
+
+  final PhoneController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!controller.isLinked || controller.canChangeSettings) {
+      return const SizedBox.shrink();
+    }
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        key: const Key('owner-note'),
+        children: [
+          Icon(
+            Icons.lock_outline,
+            size: 18,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _ownerNote,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _FieldError extends StatelessWidget {
-  const _FieldError(this.text, {this.plain = false});
+  const _FieldError(this.text);
 
   final String text;
-
-  /// A note, not an error.
-  final bool plain;
 
   @override
   Widget build(BuildContext context) {
@@ -512,9 +546,7 @@ class _FieldError extends StatelessWidget {
       child: Text(
         text,
         style: theme.textTheme.bodySmall?.copyWith(
-          color: plain
-              ? theme.colorScheme.onSurfaceVariant
-              : theme.colorScheme.error,
+          color: theme.colorScheme.error,
         ),
       ),
     );
@@ -679,7 +711,7 @@ class _NumberField extends StatefulWidget {
   final int? max;
   final bool enabled;
   final String? error;
-  final ValueChanged<int> onSave;
+  final Future<void> Function(int stored) onSave;
   final VoidCallback onEdit;
 
   @override
@@ -693,13 +725,16 @@ class _NumberFieldState extends State<_NumberField> {
   final FocusNode _focus = FocusNode();
   String? _localError;
 
+  /// A save is under way: submit and focus loss must not send it twice.
+  bool _saving = false;
+
   String _format(double v) => trimNumber(v, widget.decimals ? 2 : 0);
 
   @override
   void initState() {
     super.initState();
     _focus.addListener(() {
-      if (!_focus.hasFocus) _commit();
+      if (mounted && !_focus.hasFocus) _commit();
     });
   }
 
@@ -712,6 +747,12 @@ class _NumberFieldState extends State<_NumberField> {
     }
     if (widget.error != null && old.error == null) {
       _text.text = _format(widget.valueInUnit);
+    }
+    // The control went read-only (link lost, role changed): drop what was
+    // typed.
+    if (old.enabled && !widget.enabled) {
+      _text.text = _format(widget.valueInUnit);
+      _localError = null;
     }
   }
 
@@ -729,11 +770,18 @@ class _NumberFieldState extends State<_NumberField> {
         '${_format(hi / widget.scale)} ${widget.unit}.';
   }
 
-  void _commit() {
-    if (!widget.enabled) return;
+  /// The one way a typed value is saved (Done key and focus loss).
+  Future<void> _commit() async {
+    if (_saving) return;
+    if (!widget.enabled) {
+      _text.text = _format(widget.valueInUnit);
+      return;
+    }
     final raw = _text.text.trim().replaceAll(',', '.');
     final parsed = double.tryParse(raw);
-    if (parsed == null || (!widget.decimals && parsed != parsed.truncate())) {
+    if (parsed == null ||
+        !parsed.isFinite ||
+        (!widget.decimals && parsed != parsed.truncate())) {
       _revert(widget.decimals ? 'Enter a number' : 'Enter a whole number');
       return;
     }
@@ -747,8 +795,15 @@ class _NumberFieldState extends State<_NumberField> {
       _text.text = _format(widget.valueInUnit);
       return;
     }
-    setState(() => _localError = null);
-    widget.onSave(stored);
+    setState(() {
+      _localError = null;
+      _saving = true;
+    });
+    try {
+      await widget.onSave(stored);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   void _revert(String message) {

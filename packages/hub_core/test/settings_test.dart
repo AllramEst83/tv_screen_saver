@@ -2,11 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:hub_core/hub_core.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_phone_harness.dart';
 import 'support/fake_tools.dart';
+import 'support/limits.dart';
 
 const token = 'secret-token';
 
@@ -21,6 +23,7 @@ void main() {
     int cap = 90000000000,
     int ceiling = 80,
     int cache = 2500000000,
+    Map<String, SettingLimit>? limits = openLimits,
   }) async {
     final config = ServerConfig(
       mediaDir: '${tmp.path}/media',
@@ -36,6 +39,7 @@ void main() {
       config,
       token,
       db: db,
+      settingsLimits: limits,
       library: LibraryStore(
         config: config,
         db: db,
@@ -68,10 +72,10 @@ void main() {
     tmp.deleteSync(recursive: true);
   });
 
-  Future<TestPhone> pair() async {
+  Future<TestPhone> pair([String client = 'TestPhone']) async {
     final p = await TestPhone.connect(server.port);
     server.hub.openPairingSession();
-    await p.pairWithQr(server.hub.currentQrUri('127.0.0.1')!);
+    await p.pairWithQr(server.hub.currentQrUri('127.0.0.1')!, client: client);
     server.hub.closePairingSession();
     addTearDown(p.close);
     return p;
@@ -153,7 +157,7 @@ void main() {
 
   test('a controller is forbidden; invalid values name the field and change '
       'nothing', () async {
-    await startServer();
+    await startServer(limits: null);
     final owner = await pair();
     final ctrl = await pair();
     final f = await ctrl.request('settings.update', {'imageSeconds': 20});
@@ -184,7 +188,10 @@ void main() {
     expect(mixed['code'], HubErrorCode.invalid);
     final empty = await owner.request('settings.update');
     expect(empty['code'], HubErrorCode.invalid);
-    expect((await snapshotOf(owner))['values'], containsPair('kenBurns', false));
+    expect(
+      (await snapshotOf(owner))['values'],
+      containsPair('kenBurns', false),
+    );
     expect(await server.db.allSettings(), isEmpty);
   });
 
@@ -200,19 +207,17 @@ void main() {
 
   test('lowering the storage cap below usage keeps files and refuses new '
       'uploads with 507', () async {
-    await startServer(cap: 5000000000);
+    await startServer(cap: 5000000);
     final owner = await pair();
     expect(await startUpload(2000), 200);
     final ok = await owner.request('settings.update', {
-      'storageCapBytes': 1000000000,
+      'storageCapBytes': 1000,
     });
     expect(ok['t'], HubMsg.ok);
-    server.config.storageCapBytes = 1000; // below the declared upload
-    final r = await startUpload(5000);
-    expect(r, 507);
+    expect(await startUpload(5000), 507);
     expect(await server.library.usedBytes(), 2000, reason: 'nothing deleted');
     final snap = await server.library.snapshot();
-    expect((snap['storage'] as Map)['capBytes'], 1000);
+    expect(snap['storage'], {'usedBytes': 2000, 'capBytes': 1000});
   });
 
   test('the storage cap and TV cache are read live', () async {
@@ -267,10 +272,129 @@ void main() {
       expect(await upgraded.allSettings(), isEmpty);
       await upgraded.writeSettings({'imageSeconds': '15'});
       expect(await upgraded.allSettings(), {'imageSeconds': '15'});
-      final v = await upgraded
-          .customSelect('PRAGMA user_version')
-          .getSingle();
+      final v = await upgraded.customSelect('PRAGMA user_version').getSingle();
       expect(v.read<int>('user_version'), 4);
     });
+  });
+
+  test('environment and stored values are validated like updates', () async {
+    // 3000 bytes is below the default minimum cap: the default is used.
+    await startServer(cap: 3000, ceiling: 100000, cache: 1, limits: null);
+    expect(server.settings.values['storageCapBytes'], kDefaultStorageCapBytes);
+    expect(
+      server.settings.values['streamingCeilingMbps'],
+      kDefaultStreamCeilingMbps,
+    );
+    expect(server.settings.values['tvCacheBytes'], kDefaultTvCacheBytes);
+    expect(server.config.storageCapBytes, kDefaultStorageCapBytes);
+    await server.db.writeSettings({'imageSeconds': '9999'});
+    await stopServer();
+    await startServer(limits: null);
+    expect(server.settings.values['imageSeconds'], 10);
+  });
+
+  test(
+    'non-finite numbers are refused; a failed write is unavailable',
+    () async {
+      await startServer();
+      for (final bad in [
+        double.nan,
+        double.infinity,
+        double.negativeInfinity,
+      ]) {
+        await expectLater(
+          server.settings.update({'imageSeconds': bad}),
+          throwsA(
+            isA<SettingsRejected>().having(
+              (e) => e.extra['field'],
+              'field',
+              'imageSeconds',
+            ),
+          ),
+        );
+      }
+      final db = HubDatabase.inMemory();
+      final store = SettingsStore(
+        db: db,
+        config: ServerConfig(mediaDir: 'x', tokenFile: 'x'),
+      );
+      await store.load();
+      await db.close();
+      await expectLater(
+        store.update({'kenBurns': true}),
+        throwsA(
+          isA<HubError>()
+              .having((e) => e.code, 'code', 'unavailable')
+              .having(
+                (e) => e.message,
+                'message',
+                'Could not save the setting',
+              ),
+        ),
+      );
+      expect(store.values['kenBurns'], false, reason: 'nothing changed');
+    },
+  );
+
+  test('library events carry the true storage figure; a new cap and a new '
+      'ceiling are announced; cacheRequired follows the ceiling', () async {
+    await startServer();
+    final owner = await pair();
+    // A video of 70 Mbit/s: below 80, above 60.
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await server.db.insertLibraryItem(
+      LibraryItemsCompanion.insert(
+        id: 'v.mp4',
+        kind: 'video',
+        name: 'v',
+        sha256: 'a' * 64,
+        bytes: 5000,
+        createdAt: now,
+        bitrate: const Value(70000000),
+      ),
+    );
+    final snap = await snapshotOf(owner);
+    expect(snap, isNotNull);
+    expect(await server.db.libraryItem('v.mp4'), isNotNull);
+    await owner.request('settings.update', {'streamingCeilingMbps': 60});
+    final upd = await owner.expectEvent('library.updated');
+    final data = upd['data'] as Map;
+    expect(data['id'], 'v.mp4');
+    expect(data['cacheRequired'], true);
+    expect(data['storage'], {'usedBytes': 5000, 'capBytes': 90000000000});
+    expect((await server.db.libraryItem('v.mp4'))!.cacheRequired, isTrue);
+
+    await owner.request('settings.update', {'streamingCeilingMbps': 100});
+    final back = await owner.expectEvent('library.updated');
+    expect((back['data'] as Map)['cacheRequired'], false);
+
+    await owner.request('settings.update', {'storageCapBytes': 5000000000});
+    final st = await owner.waitFor(
+      (m) =>
+          m['kind'] == 'library.storage' &&
+          ((m['data'] as Map)['storage'] as Map)['capBytes'] == 5000000000,
+    );
+    expect((st['data'] as Map)['storage'], {
+      'usedBytes': 5000,
+      'capBytes': 5000000000,
+    });
+    // The snapshot has the figure too.
+    expect((await server.library.snapshot())['storage'], {
+      'usedBytes': 5000,
+      'capBytes': 5000000000,
+    });
+  });
+
+  test('a long or padded client name is stored trimmed, cut at 40 characters '
+      'on a character boundary', () async {
+    await startServer();
+    final long = await pair('x' * 60);
+    final padded = await pair('   Pixel 9   ');
+    final emoji = await pair('${'a' * 39}😀😀');
+    final rows = await server.db.allDevices();
+    final names = {for (final r in rows) r.id: r.name};
+    expect(names[long.deviceId], 'x' * 40);
+    expect(names[padded.deviceId], 'Pixel 9');
+    expect(names[emoji.deviceId], '${'a' * 39}😀');
   });
 }

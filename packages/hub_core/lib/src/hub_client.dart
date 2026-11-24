@@ -21,7 +21,7 @@ abstract final class HubMessages {
   static const upgradeTv =
       'The TV app is older than this app. On the TV, open the drawer and '
       'choose "Check for updates".';
-  static const revoked = 'This TV no longer knows this phone. Pair again.';
+  static const revoked = 'This phone was removed from the Pi';
   static const pairingNotOpen = 'Start pairing on the TV, then scan again.';
   static const pairingOff = 'Pairing is turned off on the TV.';
   static const notConnected = 'Not connected to the TV';

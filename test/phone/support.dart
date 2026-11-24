@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:hub_core/hub_core.dart';
 import 'package:tv_saver/shared/multicast_lock.dart';
@@ -60,13 +61,23 @@ Future<void> untilAsync(
 
 /// A real in-process hub (in-memory database, loopback socket).
 class Rig {
-  Rig._(this.db, this.server, this.display, this.player, this.settings);
+  Rig._(
+    this.db,
+    this.server,
+    this.display,
+    this.player,
+    this.settings,
+    this.library,
+  );
 
   final HubDatabase db;
   final HubServer server;
 
   /// Set when the rig was started with `withSettings`.
   final SettingsStore? settings;
+
+  /// Set when the rig was started with `withLibrary`.
+  final LibraryStore? library;
 
   /// Set when the rig was started with `playlists`.
   final DisplayModule? display;
@@ -77,6 +88,8 @@ class Rig {
     String? dbFile,
     PlaylistSource? playlists,
     bool withSettings = false,
+    bool withLibrary = false,
+    int capBytes = 10000,
   }) async {
     final db = dbFile == null
         ? HubDatabase.inMemory()
@@ -105,17 +118,33 @@ class Rig {
       server.registerModule(display);
       server.registerModule(player);
     }
+    final config = ServerConfig(
+      mediaDir: Directory.systemTemp.createTempSync('rig').path,
+      tokenFile: 'unused',
+      storageCapBytes: capBytes,
+    );
     SettingsStore? settings;
+    LibraryStore? library;
+    if (withLibrary) library = LibraryStore(config: config, db: db);
     if (withSettings) {
       settings = SettingsStore(
         db: db,
-        config: ServerConfig(mediaDir: 'unused', tokenFile: 'unused'),
+        config: config,
+        // Small caps for tests.
+        limits: {
+          ...SettingsStore.defaultLimits,
+          'storageCapBytes': const SettingLimit(1, 1 << 50),
+        },
       );
       await settings.load();
       server.registerModule(SettingsModule(settings));
     }
+    if (library != null) {
+      server.registerModule(LibraryModule(library));
+      settings?.changes.listen((_) => library!.announceStorage());
+    }
     await server.start();
-    return Rig._(db, server, display, player, settings);
+    return Rig._(db, server, display, player, settings, library);
   }
 
   /// Opens a pairing session and returns its QR URI.
@@ -125,6 +154,7 @@ class Rig {
   }
 
   Future<void> dispose() async {
+    await library?.stop();
     await server.stop();
     await db.close();
   }

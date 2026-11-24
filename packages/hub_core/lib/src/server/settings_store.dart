@@ -28,14 +28,21 @@ class SettingLimit {
 /// The three byte and bitrate settings are written onto the [ServerConfig] so
 /// live consumers (library, media worker) see changes without a restart.
 class SettingsStore {
-  SettingsStore({required this.db, required this.config});
+  SettingsStore({
+    required this.db,
+    required this.config,
+    Map<String, SettingLimit>? limits,
+  }) : limits = limits ?? defaultLimits;
 
   final HubDatabase db;
   final ServerConfig config;
 
   static const transitions = ['crossfade', 'cut'];
 
-  static const limits = <String, SettingLimit>{
+  /// The accepted ranges (tests may pass smaller ones).
+  final Map<String, SettingLimit> limits;
+
+  static const defaultLimits = <String, SettingLimit>{
     'imageSeconds': SettingLimit(3, 120),
     'storageCapBytes': SettingLimit(1000000000, 1000000000000),
     'streamingCeilingMbps': SettingLimit(5, 500),
@@ -68,31 +75,42 @@ class SettingsStore {
   /// Reads the stored values; fills the gaps from the config and defaults.
   Future<void> load() async {
     final stored = await db.allSettings();
-    final out = <String, Object?>{
+    final defaults = <String, Object?>{
       'imageSeconds': 10,
       'transition': 'crossfade',
       'kenBurns': false,
       'playWithSound': true,
+      'storageCapBytes': kDefaultStorageCapBytes,
+      'streamingCeilingMbps': kDefaultStreamCeilingMbps,
+      'tvCacheBytes': kDefaultTvCacheBytes,
+    };
+    // First values come from the environment; a stored value wins. Each one
+    // passes the same checks as an update, else the default is used.
+    final start = <String, Object?>{
+      ...defaults,
       'storageCapBytes': config.storageCapBytes,
       'streamingCeilingMbps': config.streamCeilingMbps,
       'tvCacheBytes': config.tvCacheBytes,
     };
-    for (final e in stored.entries) {
-      if (!out.containsKey(e.key)) continue;
+    final out = <String, Object?>{};
+    for (final key in defaults.keys) {
+      Object? v = start[key];
+      if (stored.containsKey(key)) {
+        try {
+          v = jsonDecode(stored[key]!);
+        } catch (_) {
+          v = null;
+        }
+      }
       try {
-        final v = jsonDecode(e.value);
-        // A damaged row falls back to the default.
-        if (_typeOk(out[e.key]!, v) && (v is! int || v > 0)) out[e.key] = v;
-      } catch (_) {}
+        out[key] = _validate(key, v);
+      } on SettingsRejected {
+        out[key] = defaults[key];
+      }
     }
     _values = out;
     _apply();
   }
-
-  bool _typeOk(Object def, Object? v) =>
-      (def is int && v is int) ||
-      (def is bool && v is bool) ||
-      (def is String && v is String && transitions.contains(v));
 
   void _apply() {
     config.storageCapBytes = _values['storageCapBytes']! as int;
@@ -110,9 +128,13 @@ class SettingsStore {
     for (final e in patch.entries) {
       clean[e.key] = _validate(e.key, e.value);
     }
-    await db.writeSettings({
-      for (final e in clean.entries) e.key: jsonEncode(e.value),
-    });
+    try {
+      await db.writeSettings({
+        for (final e in clean.entries) e.key: jsonEncode(e.value),
+      });
+    } catch (_) {
+      throw const HubError('unavailable', 'Could not save the setting');
+    }
     _values = {..._values, ...clean};
     _apply();
     if (!_changes.isClosed) _changes.add(values);
@@ -126,7 +148,7 @@ class SettingsStore {
       case 'streamingCeilingMbps':
       case 'tvCacheBytes':
         final lim = limits[key]!;
-        if (v is! num || v != v.truncate()) {
+        if (v is! num || !v.isFinite || v != v.truncate()) {
           throw SettingsRejected(key, '${_labels[key]} must be a whole number');
         }
         final n = v.toInt();

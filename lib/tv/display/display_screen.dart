@@ -270,18 +270,22 @@ class _DisplayScreenState extends State<DisplayScreen>
   Widget _idleView() {
     final status = _client.statusText;
     final phase = _client.hub.phase;
-    final link = _client.connected
-        ? IdleLink.connected
-        : switch (phase) {
-            HubConnectionPhase.connecting ||
-            HubConnectionPhase.reconnecting ||
-            HubConnectionPhase.disconnected ||
-            HubConnectionPhase.awaitingPin => IdleLink.connecting,
-            _ => IdleLink.unreachable,
-          };
+    final link = switch (phase) {
+      HubConnectionPhase.connected => IdleLink.connected,
+      // Still trying, or in the handshake.
+      HubConnectionPhase.connecting ||
+      HubConnectionPhase.reconnecting ||
+      HubConnectionPhase.disconnected ||
+      HubConnectionPhase.awaitingPin => IdleLink.connecting,
+      HubConnectionPhase.offline ||
+      HubConnectionPhase.appNotOpen ||
+      HubConnectionPhase.wrongTv ||
+      HubConnectionPhase.replaced ||
+      HubConnectionPhase.needsTvUpdate => IdleLink.unreachable,
+    };
     return Positioned.fill(
       child: IdleView(
-        status: _client.connected || status.isEmpty
+        status: link == IdleLink.connected || status.isEmpty
             ? IdleView.readyText
             : status,
         link: link,

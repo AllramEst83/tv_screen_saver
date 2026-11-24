@@ -7,6 +7,7 @@ import 'package:hub_core/hub_core.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_phone_harness.dart';
+import 'support/limits.dart';
 import 'support/fake_tools.dart';
 
 const token = 'secret-token';
@@ -44,6 +45,7 @@ void main() {
       config,
       token,
       db: db,
+      settingsLimits: openLimits,
       library: LibraryStore(
         config: config,
         db: db,

@@ -35,6 +35,7 @@ class PiServer {
     HubDatabase? db,
     PlaylistSource? playlists,
     LibraryStore? library,
+    Map<String, SettingLimit>? settingsLimits,
   }) : this._(
          config,
          token,
@@ -42,6 +43,7 @@ class PiServer {
          db == null,
          playlists,
          library,
+         settingsLimits,
        );
 
   PiServer._(
@@ -51,7 +53,9 @@ class PiServer {
     this._ownsDb,
     PlaylistSource? playlists,
     LibraryStore? library,
+    Map<String, SettingLimit>? settingsLimits,
   ) : library = library ?? LibraryStore(config: config, db: db),
+      settings = SettingsStore(db: db, config: config, limits: settingsLimits),
       _playlists = playlists;
 
   final ServerConfig config;
@@ -63,7 +67,8 @@ class PiServer {
 
   /// Persistent settings; the live storage cap, streaming ceiling and TV
   /// cache cap in [config] follow it.
-  late final SettingsStore settings = SettingsStore(db: db, config: config);
+  final SettingsStore settings;
+  StreamSubscription<Map<String, Object?>>? _settingsSub;
 
   final PlaylistSource? _playlists;
 
@@ -98,6 +103,14 @@ class PiServer {
       ),
     );
     await settings.load();
+    _settingsSub = settings.changes.listen((_) async {
+      // The ceiling, the cache cap and the storage cap are live: bring the
+      // stored videos' flags and the phones' storage figure up to date.
+      try {
+        await library.reevaluateCacheRequired();
+      } catch (_) {}
+      library.announceStorage();
+    });
     hub.registerModule(SettingsModule(settings));
     hub.registerModule(LibraryModule(library));
     final displayModule = DisplayModule(
@@ -123,6 +136,7 @@ class PiServer {
     library.onItemRemoved = null;
     await library.stop();
     library.capabilities = null;
+    await _settingsSub?.cancel();
     await settings.dispose();
     await _hub?.stop();
     if (_ownsDb) await db.close();

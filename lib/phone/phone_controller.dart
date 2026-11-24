@@ -32,6 +32,9 @@ enum LinkStatus {
 
   /// The Pi did not answer; the app stops trying until Retry.
   offline,
+
+  /// The Pi answered but the TV Saver server is not running on it.
+  serverDown,
 }
 
 /// The outcome of a settings or rename request.
@@ -92,9 +95,9 @@ class PhoneController extends ChangeNotifier {
   Map<String, Object?> _settings = const {};
   Map<String, Map<String, int>> _limits = const {};
   final Map<String, String> _itemNames = {};
-  final Map<String, int> _itemBytes = {};
   final Map<String, int> _itemDurations = {};
   int _usedBytes = 0;
+  int _capBytes = 0;
   bool _hasLibrary = false;
 
   HubClientState get hub => client.state.value;
@@ -155,6 +158,7 @@ class PhoneController extends ChangeNotifier {
       tvNotConnected ? LinkStatus.tvOff : LinkStatus.connected,
     HubConnectionPhase.connecting ||
     HubConnectionPhase.reconnecting => LinkStatus.reconnecting,
+    HubConnectionPhase.appNotOpen => LinkStatus.serverDown,
     _ => LinkStatus.offline,
   };
 
@@ -181,6 +185,9 @@ class PhoneController extends ChangeNotifier {
 
   /// Bytes the library (and unfinished uploads) take on the Pi.
   int get storageUsedBytes => _usedBytes;
+
+  /// The Pi's storage limit in bytes; 0 while it is not known.
+  int get storageCapBytes => _capBytes;
   bool get hasLibrary => _hasLibrary;
 
   /// The name of a library item; the id when it is not known.
@@ -286,6 +293,7 @@ class PhoneController extends ChangeNotifier {
   /// Close app: releases the multicast lock, disconnects and leaves. The
   /// pairing stays saved, so the next launch reconnects by itself.
   Future<void> closeApp() async {
+    if (_closing) return; // a second tap while it closes does nothing
     _closing = true;
     if (_lockHeld) {
       _lockHeld = false;
@@ -293,7 +301,9 @@ class PhoneController extends ChangeNotifier {
     }
     try {
       await client.disconnect();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('TV Saver: disconnect on close failed: $e');
+    }
     await SystemNavigator.pop();
   }
 
@@ -335,7 +345,8 @@ class PhoneController extends ChangeNotifier {
   Future<void> _guarded(Future<void> Function() body) async {
     try {
       await body();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('TV Saver: a connection call failed: $e');
       if (_disposed) return;
       client.state.value = hub.copyWith(
         phase: HubConnectionPhase.disconnected,
@@ -349,11 +360,9 @@ class PhoneController extends ChangeNotifier {
   void setForeground(bool value) {
     _foreground = value;
     if (value && _closing) {
-      // The activity survived Close app: connect again.
+      // The activity survived Close app: connect again to the saved Pi.
       _closing = false;
-      if (_hasPairing) {
-        unawaited(_guarded(() async => client.reconnectSavedHub()));
-      }
+      unawaited(_guarded(() async => client.reconnectSavedHub()));
     }
     _syncLock();
   }
@@ -466,7 +475,7 @@ class PhoneController extends ChangeNotifier {
     } catch (_) {
       ok = false;
     }
-    _devices = const [];
+    _clearRemote();
     await _refreshPairing();
     return ok;
   }
@@ -488,6 +497,7 @@ class PhoneController extends ChangeNotifier {
         phase != HubConnectionPhase.offline &&
         phase != HubConnectionPhase.appNotOpen) {
       _wasConnected = false;
+      _clearRemote();
     }
     if (phase != HubConnectionPhase.connected) {
       // Keep the last list while the link comes back.
@@ -565,17 +575,20 @@ class PhoneController extends ChangeNotifier {
         }
       case 'library.added':
       case 'library.updated':
-        _noteItem(data, added: ev['kind'] == 'library.added');
+        _noteItem(data);
+        _readStorage(data);
         if (!_disposed) notifyListeners();
       case 'library.removed':
         final id = data is Map ? data['id'] : null;
         if (id is String) {
           _itemNames.remove(id);
           _itemDurations.remove(id);
-          _usedBytes -= _itemBytes.remove(id) ?? 0;
-          if (_usedBytes < 0) _usedBytes = 0;
-          if (!_disposed) notifyListeners();
         }
+        _readStorage(data);
+        if (!_disposed) notifyListeners();
+      case 'library.storage':
+        _readStorage(data);
+        if (!_disposed) notifyListeners();
       case 'display.changed':
         if (data is Map && data['online'] is bool) {
           _setDisplayOnline(data['online'] as bool);
@@ -584,42 +597,59 @@ class PhoneController extends ChangeNotifier {
     }
   }
 
+  /// A snapshot without a `settings` module clears what an older one said.
   void _readSettings(Object? raw) {
-    if (raw is! Map) return;
-    final values = raw['values'];
-    if (values is Map) _settings = Map<String, Object?>.from(values);
-    final limits = raw['limits'];
-    if (limits is Map) {
-      _limits = {
-        for (final e in limits.entries)
-          if (e.value is Map && e.value['min'] is int && e.value['max'] is int)
-            '${e.key}': {
-              'min': e.value['min'] as int,
-              'max': e.value['max'] as int,
-            },
-      };
+    if (raw is! Map) {
+      _settings = const {};
+      _limits = const {};
+      return;
     }
+    final values = raw['values'];
+    _settings = values is Map ? Map<String, Object?>.from(values) : const {};
+    final limits = raw['limits'];
+    _limits = limits is Map
+        ? {
+            for (final e in limits.entries)
+              if (e.value is Map &&
+                  e.value['min'] is int &&
+                  e.value['max'] is int)
+                '${e.key}': {
+                  'min': e.value['min'] as int,
+                  'max': e.value['max'] as int,
+                },
+          }
+        : const {};
   }
 
   void _readLibrary(Object? raw) {
-    if (raw is! Map) return;
     _itemNames.clear();
-    _itemBytes.clear();
     _itemDurations.clear();
+    _usedBytes = 0;
+    _capBytes = 0;
+    _hasLibrary = false;
+    if (raw is! Map) return;
     final items = raw['items'];
     if (items is List) {
       for (final i in items) {
-        _noteItem(i, added: false);
+        _noteItem(i);
       }
     }
-    final storage = raw['storage'];
-    if (storage is Map && storage['usedBytes'] is int) {
-      _usedBytes = storage['usedBytes'] as int;
-    }
+    _readStorage(raw);
     _hasLibrary = true;
   }
 
-  void _noteItem(Object? raw, {required bool added}) {
+  /// The Pi's own `storage {usedBytes, capBytes}` figure, in a snapshot or an
+  /// event.
+  void _readStorage(Object? raw) {
+    final storage = raw is Map ? raw['storage'] : null;
+    if (storage is! Map) return;
+    final used = storage['usedBytes'];
+    final cap = storage['capBytes'];
+    if (used is int) _usedBytes = used;
+    if (cap is int) _capBytes = cap;
+  }
+
+  void _noteItem(Object? raw) {
     if (raw is! Map) return;
     final id = raw['id'];
     if (id is! String) return;
@@ -631,12 +661,13 @@ class PhoneController extends ChangeNotifier {
     } else {
       _itemDurations.remove(id);
     }
-    final bytes = raw['bytes'];
-    if (bytes is int) {
-      final old = _itemBytes[id];
-      if (added && old == null) _usedBytes += bytes;
-      _itemBytes[id] = bytes;
-    }
+  }
+
+  /// Forget everything the Pi told this phone (the pairing is gone).
+  void _clearRemote() {
+    _readSettings(null);
+    _readLibrary(null);
+    _devices = const [];
   }
 
   void _setDisplayOnline(bool online) {

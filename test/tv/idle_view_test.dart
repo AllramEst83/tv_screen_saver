@@ -5,8 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tv_saver/tv/display/idle_view.dart';
 
 void main() {
-  Widget host(Widget child) => MaterialApp(
-    home: Scaffold(backgroundColor: Colors.black, body: child),
+  Widget host(Widget child, {bool h24 = true}) => MaterialApp(
+    home: Builder(
+      builder: (context) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: h24),
+        child: Scaffold(backgroundColor: Colors.black, body: child),
+      ),
+    ),
   );
 
   testWidgets('shows the clock, the date, the status line and the Pi dot', (
@@ -21,12 +26,36 @@ void main() {
       ),
     );
     expect(find.text('09:05'), findsOneWidget);
-    expect(find.text('Tuesday, 24 November'), findsOneWidget);
+    expect(find.text('Tuesday, November 24, 2026'), findsOneWidget);
     expect(find.text('Ready — choose something on your phone'), findsOne);
     expect(find.byKey(const Key('idle-dot')), findsOneWidget);
     expect(find.bySemanticsLabel('Pi connected'), findsOneWidget);
     // Near black, not a picture.
     expect(IdleView.background.computeLuminance(), lessThan(0.01));
+  });
+
+  testWidgets('follows the TV 12 hour setting and its language', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        IdleView(status: 'x', now: () => DateTime(2026, 11, 24, 21, 5)),
+        h24: false,
+      ),
+    );
+    expect(find.text('9:05 PM'), findsOneWidget);
+    expect(find.text('21:05'), findsNothing);
+  });
+
+  testWidgets('a time jump is corrected by the next drift', (tester) async {
+    var now = DateTime(2026, 11, 24, 9, 5, 10);
+    await tester.pumpWidget(host(IdleView(status: 'x', now: () => now)));
+    expect(find.text('09:05'), findsOneWidget);
+    // The clock is set back by an hour; within a minute the screen
+    // shows the right time again.
+    now = DateTime(2026, 11, 24, 8, 5, 20);
+    await tester.pump(const Duration(minutes: 1));
+    expect(find.text('08:05'), findsOneWidget);
   });
 
   testWidgets('the dot and the line say when the Pi is not reachable', (

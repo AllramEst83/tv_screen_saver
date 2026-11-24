@@ -2,7 +2,7 @@
 title: 'Phone app shell: drawer, grouped settings and idle TV screen'
 type: 'feature'
 created: '2026-11-24'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '39cb81d4d37fcc5d081454d046b367d21ce38452'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -82,6 +82,23 @@ context:
 ## Spec Change Log
 
 ## Review Triage Log
+
+| Finding | Verdict | Route | Evidence |
+| --- | --- | --- | --- |
+| Phone keeps settings, item names and storage figures of a previous Pi; settings stay editable when the snapshot lacks the module | medium | patch | `_readSettings`/`_readLibrary` only overwrite when present |
+| Storage used-bytes derived on the phone drifts (unfinished uploads, updates never counted); "0 of 0" when cap missing; no phone-side test | medium | patch | `_noteItem`; Pi has the true figure |
+| Stored or environment values outside the limits are applied on load; infinite number crashes `_validate`; a failed write surfaces as a generic error | medium | patch | `SettingsStore.load`, `_validate`, `update` |
+| Number field saves twice (submit and focus loss), typed text lost when disabled or unmounted; overlapping saves flicker | medium | patch | `_NumberFieldState._commit`, `_save` |
+| Streaming limit change does not recompute `cacheRequired`, yet the pane promises it | medium | patch | Notes in BUILD_AND_DEPLOY.md; recompute on `settings.changed` |
+| Close app: double tap, `_closing` not reset on resume when not paired, reconnect after resume untested | medium | patch | `closeApp`, `setForeground` |
+| Phone removed by the owner or "Forget all phones": what it sees is untested; appNotOpen shown as "Can't reach the Pi" | medium | patch | Only the other phone's row is asserted |
+| Device name: model code on some phones (e.g. SM-S918B), no timeout on `androidInfo`, 40-char cut can split a surrogate pair, hello name cut untested | low | patch | `_deviceName`, `hub_server.dart` hello |
+| Idle TV: clock hard-coded 24 h English, clock jump after NTP sync, link mapping (connected/connecting/unreachable) only tested at the leaf | medium | patch | `idle_view.dart`, `_idleView` |
+| About "Pi software" prints the protocol number; Forget dialog shows a CLI command; owner note only at the top of the page | low | patch | `about_screen.dart`, settings dialogs |
+| Test gaps: storage pane via `LibraryModule`, cap lowering through `settings.update` (test writes the config directly), vacuous `anyOf` in the rename test, hello-name truncation | medium | patch | Verification-gap evidence |
+| `t`/`rid`/`op` keys dropped instead of refused; `hub_server.dart` imports `devices_module.dart` for a constant; import order | low | reject | Framing keys, lint clean, no named harm |
+| Close during an upload; no re-check-library action | low | reject | No uploads until 4-3 |
+| Story file status and notes empty | false | reject | Workflow updates the story after review |
 
 ## Verification
 

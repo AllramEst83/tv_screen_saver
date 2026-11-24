@@ -60,7 +60,7 @@ class _AboutPaneState extends State<AboutPane> {
         InfoRow(label: 'App version', value: _version ?? '…'),
         InfoRow(label: 'Pi name', value: hub.hubName ?? 'Unknown'),
         InfoRow(label: 'Pi id', value: hub.hubId ?? 'Unknown'),
-        InfoRow(label: 'Pi software', value: 'Protocol $kProtocolVersion'),
+        InfoRow(label: 'Protocol version', value: '$kProtocolVersion'),
         InfoRow(label: 'TV', value: tvText),
       ],
     );

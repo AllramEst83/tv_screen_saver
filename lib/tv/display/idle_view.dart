@@ -39,39 +39,6 @@ class IdleView extends StatefulWidget {
 
   static const background = Color(0xFF050505);
 
-  static const _months = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ];
-  static const _days = [
-    'Monday',
-    'Tuesday',
-    'Wednesday',
-    'Thursday',
-    'Friday',
-    'Saturday',
-    'Sunday',
-  ];
-
-  /// `21:05`.
-  static String clockText(DateTime t) =>
-      '${t.hour.toString().padLeft(2, '0')}:'
-      '${t.minute.toString().padLeft(2, '0')}';
-
-  /// `Tuesday, 24 November`.
-  static String dateText(DateTime t) =>
-      '${_days[t.weekday - 1]}, ${t.day} ${_months[t.month - 1]}';
-
   @override
   State<IdleView> createState() => _IdleViewState();
 }
@@ -120,6 +87,7 @@ class _IdleViewState extends State<IdleView> {
   /// clear of the edges.
   void _drift() {
     if (!mounted) return;
+    _now = _read(); // also corrects the clock after a time jump
     Alignment next;
     var tries = 0;
     do {
@@ -148,6 +116,12 @@ class _IdleViewState extends State<IdleView> {
   @override
   Widget build(BuildContext context) {
     final height = MediaQuery.sizeOf(context).height;
+    // The TV's language and its 12 or 24 hour setting.
+    final l10n = MaterialLocalizations.of(context);
+    final clock = l10n.formatTimeOfDay(
+      TimeOfDay.fromDateTime(_now),
+      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+    );
     return ColoredBox(
       key: const Key('idle-view'),
       color: IdleView.background,
@@ -164,7 +138,7 @@ class _IdleViewState extends State<IdleView> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                IdleView.clockText(_now),
+                clock,
                 key: const Key('idle-clock'),
                 style: TextStyle(
                   color: const Color(0xFFEDEDED),
@@ -177,7 +151,7 @@ class _IdleViewState extends State<IdleView> {
               ),
               SizedBox(height: height * 0.02),
               Text(
-                IdleView.dateText(_now),
+                l10n.formatFullDate(_now),
                 key: const Key('idle-date'),
                 style: TextStyle(
                   color: const Color(0xFF8E8E8E),

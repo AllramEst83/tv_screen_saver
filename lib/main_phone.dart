@@ -2,6 +2,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:hub_core/hub_core.dart';
 
+import 'phone/device_name.dart';
 import 'phone/phone_controller.dart';
 import 'phone/screens/connect_screen.dart';
 import 'phone/screens/about_screen.dart' show VersionLoader;
@@ -21,15 +22,17 @@ Future<void> main() async {
   runApp(PhoneApp(controller: controller));
 }
 
-/// The phone's model (for example "Pixel 9 Pro XL"): the name a new phone
-/// pairs with. The user can rename it in Settings.
+/// The phone's name for a new pairing (see [phoneNameFor]); "Phone" when
+/// Android does not answer within two seconds. The user can rename it.
 Future<String> _deviceName() async {
   try {
-    final info = await DeviceInfoPlugin().androidInfo;
-    final model = info.model.trim();
-    if (model.isNotEmpty) return model;
-  } catch (_) {}
-  return 'Phone';
+    final info = await DeviceInfoPlugin().androidInfo.timeout(
+      const Duration(seconds: 2),
+    );
+    return phoneNameFor(manufacturer: info.manufacturer, model: info.model);
+  } catch (_) {
+    return 'Phone';
+  }
 }
 
 ThemeData _theme(Brightness brightness) {

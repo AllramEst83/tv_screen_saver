@@ -9,6 +9,7 @@ import 'package:sqlite3/sqlite3.dart' as sql;
 import 'package:test/test.dart';
 
 import 'support/fake_phone_harness.dart';
+import 'support/limits.dart';
 
 const staticToken = 'secret-token';
 
@@ -56,6 +57,7 @@ void main() {
       config,
       staticToken,
       db: database,
+      settingsLimits: openLimits,
       library: LibraryStore(
         config: config,
         db: database,
