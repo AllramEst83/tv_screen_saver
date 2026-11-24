@@ -10,15 +10,35 @@ import 'hub_module.dart';
 /// - `device.rename {name}`: any device renames itself
 /// - `device.forget {deviceId}`: owner only; the device's pairings are deleted
 ///   and its sockets closed
+/// - `devices.startPairing` / `devices.cancelPairing`: display only
+/// - `devices.approveDisplay {requestId}`: any paired phone
+/// - `devices.forgetAll`: owner or display; deletes all phone pairings
 /// - event `devices.changed {devices}`: on connect, disconnect, rename, forget
 class DevicesModule implements HubModule {
-  DevicesModule({required this.db, required this.onForgetDevice});
+  DevicesModule({
+    required this.db,
+    required this.onForgetDevice,
+    this.onStartPairing,
+    this.onCancelPairing,
+    this.onApproveDisplay,
+    this.onForgetAllPhones,
+  });
 
   final HubDatabase db;
 
   /// Deletes the device's pairings and drops its sockets (provided by the
   /// server).
   final Future<void> Function(String deviceId) onForgetDevice;
+
+  /// Opens a pairing session relayed to the calling display connection.
+  final Future<void> Function(String connectionId)? onStartPairing;
+  final Future<void> Function(String connectionId)? onCancelPairing;
+
+  /// Approves a waiting display; returns false for an unknown request.
+  final Future<bool> Function(String requestId)? onApproveDisplay;
+
+  /// Deletes every phone pairing and closes phone sockets.
+  final Future<void> Function(String callerConnectionId)? onForgetAllPhones;
 
   static const maxNameLength = 40;
 
@@ -36,7 +56,66 @@ class DevicesModule implements HubModule {
   Map<String, HubHandlerSpec> get handlers => {
     'device.rename': HubHandlerSpec(handler: _rename),
     'device.forget': HubHandlerSpec(handler: _forget, requireOwner: true),
+    'devices.startPairing': HubHandlerSpec(handler: _startPairing),
+    'devices.cancelPairing': HubHandlerSpec(handler: _cancelPairing),
+    'devices.approveDisplay': HubHandlerSpec(handler: _approveDisplay),
+    'devices.forgetAll': HubHandlerSpec(
+      handler: _forgetAll,
+      requireOwner: true,
+    ),
   };
+
+  void _requireDisplay(HubCall call) {
+    if (!call.device.isDisplay) {
+      throw const HubError(HubErrorCode.forbidden, 'Only the TV can do this');
+    }
+  }
+
+  Future<Object?> _startPairing(HubCall call) async {
+    _requireDisplay(call);
+    final fn = onStartPairing;
+    if (fn == null) {
+      throw const HubError(
+        HubErrorCode.unavailable,
+        'Pairing is not available',
+      );
+    }
+    await fn(call.connectionId);
+    return null;
+  }
+
+  Future<Object?> _cancelPairing(HubCall call) async {
+    _requireDisplay(call);
+    await onCancelPairing?.call(call.connectionId);
+    return null;
+  }
+
+  Future<Object?> _approveDisplay(HubCall call) async {
+    if (call.device.isDisplay) {
+      throw const HubError(
+        HubErrorCode.forbidden,
+        'Only a paired phone can approve a TV',
+      );
+    }
+    final requestId = call.args['requestId'];
+    if (requestId is! String || requestId.isEmpty) {
+      throw const HubError(HubErrorCode.invalid, 'requestId is missing');
+    }
+    final ok = await onApproveDisplay?.call(requestId) ?? false;
+    if (!ok) {
+      throw const HubError(HubErrorCode.notFound, 'Unknown or expired request');
+    }
+    return {'requestId': requestId};
+  }
+
+  Future<Object?> _forgetAll(HubCall call) async {
+    final fn = onForgetAllPhones;
+    if (fn == null) {
+      throw const HubError(HubErrorCode.unavailable, 'Not available');
+    }
+    await fn(call.connectionId);
+    return null;
+  }
 
   Future<List<Map<String, Object?>>> _deviceList() async => [
     for (final r in await db.allDevices())

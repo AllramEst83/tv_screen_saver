@@ -38,6 +38,8 @@ abstract final class HubErrorCode {
   static const conflict = 'conflict';
   static const rateLimited = 'rate_limited';
   static const upgradeTv = 'upgrade_tv';
+  static const unavailable = 'unavailable';
+  static const timeout = 'timeout';
 }
 
 /// Encodes a protocol frame as a UTF-8 JSON string with `"t": type`.

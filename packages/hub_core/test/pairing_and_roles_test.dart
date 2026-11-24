@@ -78,6 +78,7 @@ void main() {
     test(
       'PIN pairing: first device is owner, later ones controllers',
       () async {
+        rig.server.openPairingSession();
         final p1 = await rig.connectPhone();
         p1.send(HubMsg.hello, {'v': 1, 'client': 'One'});
         await p1.expectType(HubMsg.pairRequired);
@@ -98,6 +99,7 @@ void main() {
     );
 
     test('3 wrong PINs lock for 60 s and rotate the credentials', () async {
+      rig.server.openPairingSession();
       final p = await rig.connectPhone();
       p.send(HubMsg.hello, {'v': 1, 'client': 'Bad'});
       await p.expectType(HubMsg.pairRequired);
@@ -128,6 +130,7 @@ void main() {
     });
 
     test('PIN expires after 120 s', () async {
+      rig.server.openPairingSession();
       final p = await rig.connectPhone();
       p.send(HubMsg.hello, {'v': 1, 'client': 'Slow'});
       await p.expectType(HubMsg.pairRequired);
@@ -152,40 +155,44 @@ void main() {
           isNot(contains(HubMsg.paired)),
         );
 
+        rig.server.openPairingSession();
         final p3 = await rig.connectPhone();
         p3.send(HubMsg.hello, {'v': 1, 'client': 'X', 'token': 'f' * 64});
         await p3.expectType(HubMsg.pairRequired);
       },
     );
 
-    test('9th phone gets conflict and is closed', () async {
-      for (var i = 0; i < 8; i++) {
-        await rig.onboardPhone('Phone $i');
-      }
-      expect(rig.server.readyClientCount, 8);
+    test(
+      '8th phone gets conflict and is closed (1 display + 7 phones)',
+      () async {
+        for (var i = 0; i < 7; i++) {
+          await rig.onboardPhone('Phone $i');
+        }
+        expect(rig.server.readyClientCount, 7);
 
-      final devicesBefore = (await rig.db.allDevices()).length;
-      final pairingsBefore = (await rig.db.allPairings()).length;
-      final ninth = await rig.connectPhone();
-      rig.server.openPairingSession();
-      final qr = rig.server.currentQrUri('127.0.0.1')!;
-      final parsed = PairQrData.tryParse(qr)!;
-      ninth.send(HubMsg.hello, {
-        'v': 1,
-        'client': 'Ninth',
-        'pairCode': parsed.pairCode,
-      });
-      final err = await ninth.expectType(HubMsg.err);
-      expect(
-        ninth.receivedHistory.map((m) => m['t']),
-        isNot(contains('paired')),
-      );
-      expect(err['code'], HubErrorCode.conflict);
-      await until(() => ninth.closed);
-      expect(rig.server.readyClientCount, 8);
-      expect((await rig.db.allDevices()).length, devicesBefore);
-      expect((await rig.db.allPairings()).length, pairingsBefore);
-    });
+        final devicesBefore = (await rig.db.allDevices()).length;
+        final pairingsBefore = (await rig.db.allPairings()).length;
+        final ninth = await rig.connectPhone();
+        rig.server.openPairingSession();
+        final qr = rig.server.currentQrUri('127.0.0.1')!;
+        final parsed = PairQrData.tryParse(qr)!;
+        ninth.send(HubMsg.hello, {
+          'v': 1,
+          'client': 'Ninth',
+          'pairCode': parsed.pairCode,
+        });
+        final err = await ninth.expectType(HubMsg.err);
+        expect(
+          ninth.receivedHistory.map((m) => m['t']),
+          isNot(contains('paired')),
+        );
+        expect(err['code'], HubErrorCode.conflict);
+        await until(() => ninth.closed);
+        expect(rig.server.readyClientCount, 7);
+        expect((await rig.db.allDevices()).length, devicesBefore);
+        expect((await rig.db.allPairings()).length, pairingsBefore);
+      },
+    );
 
     test('same token replaces the older socket', () async {
       final p1 = await rig.onboardPhone('Mine');
@@ -219,6 +226,7 @@ void main() {
         await until(() => ctl.closed);
 
         // The forgotten phone's token no longer works.
+        rig.server.openPairingSession();
         final again = await rig.connectPhone();
         again.send(HubMsg.hello, {'v': 1, 'client': 'C', 'token': ctl.token});
         await again.expectType(HubMsg.pairRequired);
@@ -341,6 +349,7 @@ void main() {
         expect(await rig.db.allPairings(), isEmpty);
         expect(await rig.db.allDevices(), isEmpty);
 
+        rig.server.openPairingSession();
         final again = await rig.connectPhone();
         again.send(HubMsg.hello, {'v': 1, 'client': 'A', 'token': a.token});
         await again.expectType(HubMsg.pairRequired);
@@ -387,6 +396,7 @@ void main() {
     });
 
     test('PIN pairing through an mDNS style endpoint', () async {
+      rig.server.openPairingSession();
       final store = MemoryHubTokenStore();
       final client = newClient(store);
       await client.connectEndpoint(

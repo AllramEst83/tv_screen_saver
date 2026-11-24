@@ -4,6 +4,11 @@ import 'package:hub_core/hub_core.dart';
 
 Future<void> main(List<String> args) async {
   final config = ServerConfig.fromEnvironment();
+  final admin = await runAdminCommand(args, config);
+  if (admin != null) {
+    (admin.ok ? stdout : stderr).writeln('tvsaver: ${admin.message}');
+    exit(admin.ok ? 0 : 1);
+  }
   final dbFile = config.dbFile;
   if (dbFile == null) {
     stderr.writeln('tvsaver: no database file configured (TVSAVER_DB_FILE)');

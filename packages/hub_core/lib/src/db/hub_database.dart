@@ -27,7 +27,7 @@ bool constantTimeEquals(String a, String b) {
 class Devices extends Table {
   TextColumn get id => text()();
   TextColumn get name => text()();
-  TextColumn get role => text()(); // 'owner' | 'controller'
+  TextColumn get role => text()(); // 'owner' | 'controller' | 'display'
   IntColumn get createdAt => integer()();
 
   @override
@@ -96,12 +96,19 @@ class HubDatabase extends _$HubDatabase {
   Future<DeviceRow?> getDevice(String id) =>
       (select(devices)..where((t) => t.id.equals(id))).getSingleOrNull();
 
-  /// Role for the next paired device: `owner` while no owner exists, else
-  /// `controller`.
+  /// Role for the next paired phone: `owner` while no phone is owner, else
+  /// `controller`. Displays do not take part in the election.
   Future<String> nextDeviceRole() async =>
       (await allDevices()).any((d) => d.role == 'owner')
       ? 'controller'
       : 'owner';
+
+  /// Number of paired phones (every device that is not a display).
+  Future<int> phoneCount() async =>
+      (await allDevices()).where((d) => d.role != 'display').length;
+
+  Future<List<DeviceRow>> displays() async =>
+      (await allDevices()).where((d) => d.role == 'display').toList();
 
   Future<void> insertDevice({
     required String id,
@@ -163,8 +170,21 @@ class HubDatabase extends _$HubDatabase {
         PairingsCompanion(lastSeenAt: Value(nowMs)),
       );
 
-  Future<void> deleteAllPairings() async {
+  /// Deletes every device and pairing (phones and display).
+  Future<void> deleteAllPairings() => deleteAllDevices();
+
+  Future<void> deleteAllDevices() async {
     await delete(pairings).go();
     await delete(devices).go();
+  }
+
+  /// Deletes every phone (non-display) device and its pairings.
+  Future<void> deleteAllPhones() async {
+    final ids = [
+      for (final d in await allDevices())
+        if (d.role != 'display') d.id,
+    ];
+    await (delete(pairings)..where((t) => t.deviceId.isIn(ids))).go();
+    await (delete(devices)..where((t) => t.id.isIn(ids))).go();
   }
 }

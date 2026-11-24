@@ -7,7 +7,6 @@ import 'package:hub_core/hub_core.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 
-
 /// Controllable clock for the server's pairing expiry.
 class FakeClock {
   FakeClock([DateTime? initial])
@@ -323,8 +322,14 @@ class TestHubRig {
       idleTimeout: idleTimeout,
       pairingTimeout: pairingTimeout,
     );
-    late final DevicesModule devices;
-    devices = DevicesModule(db: database, onForgetDevice: server.forgetDevice);
+    final devices = DevicesModule(
+      db: database,
+      onForgetDevice: server.forgetDevice,
+      onStartPairing: server.startPairingFor,
+      onCancelPairing: server.cancelPairingFor,
+      onApproveDisplay: server.approveDisplay,
+      onForgetAllPhones: server.forgetAllPhones,
+    );
     final hot = HotRelayModule();
     server.registerModule(devices);
     server.registerModule(hot);
@@ -355,6 +360,16 @@ class TestHubRig {
     return p;
   }
 
+  /// Connects a fake TV (no pairing yet).
+  Future<TestPhone> connectDisplay() async => connectPhone();
+
+  /// Connects a fake TV and pairs it as the first display.
+  Future<TestPhone> onboardDisplay([String name = 'TV']) async {
+    final d = await connectDisplay();
+    await d.helloAsDisplay(client: name);
+    return d;
+  }
+
   Future<void> dispose({bool closeDb = true}) async {
     for (final p in phones) {
       await p.close();
@@ -362,6 +377,40 @@ class TestHubRig {
     phones.clear();
     await server.stop();
     if (closeDb) await db.close();
+  }
+}
+
+extension TestDisplay on TestPhone {
+  /// `hello {kind: display}` without a token. Expects `paired` and `ready`.
+  Future<Map<String, dynamic>> helloAsDisplay({String client = 'TV'}) async {
+    sendDisplayHello(client: client);
+    final paired = await expectType(HubMsg.paired);
+    token = paired['token'] as String;
+    return _consumeReadyPublic();
+  }
+
+  void sendDisplayHello({String client = 'TV', String? withToken}) {
+    send(HubMsg.hello, {
+      'v': kProtocolVersion,
+      'client': client,
+      'kind': 'display',
+      'token': ?withToken,
+    });
+  }
+
+  Future<Map<String, dynamic>> _consumeReadyPublic() async {
+    final ready = await expectType(HubMsg.ready);
+    final device = ready['device'] as Map<String, dynamic>;
+    deviceId = device['id'] as String;
+    role = device['role'] as String;
+    return ready;
+  }
+
+  /// Display side: `devices.startPairing`, then the first `display.pairing`.
+  Future<Map<String, dynamic>> startPairing() async {
+    final r = await request('devices.startPairing');
+    if (r['t'] != HubMsg.ok) throw StateError('startPairing failed: $r');
+    return waitFor((m) => m['t'] == 'display.pairing');
   }
 }
 

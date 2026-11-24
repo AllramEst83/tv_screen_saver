@@ -1,3 +1,4 @@
+export 'src/admin.dart';
 export 'src/advertiser.dart';
 export 'src/clock_offset.dart';
 export 'src/config.dart';

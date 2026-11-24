@@ -177,9 +177,9 @@ Reboot tests, after the setup (report each `check_wifi.sh` output):
 
 A pure-Dart HTTP server (`packages/hub_core`, entry `bin/pi_server.dart`) on port 8772: `GET /health` (no auth) and `GET|HEAD /media/<id>/full` with `Range`/`206`, bearer token required. Media lives in `~/tvsaver/media/<id>` on the Pi. Multi-range requests are ignored (full `200`). Traffic — including the `Authorization: Bearer` header — is **plain HTTP on the home LAN** (no TLS by design); never expose port 8772 outside the LAN.
 
-Since story 3-1 the same listener is a `HubServer` (WebSocket `/ws` transport), and the media routes are mounted into it. Only the hub transport is in place: pairing, devices and roles arrive in story 3-2 (no `DevicesModule` is registered yet). The hub id and settings are in memory (`MemoryTvStore`) until later stories. Devices and pairings live in SQLite (`TVSAVER_DB_FILE`, default `~/tvsaver/hub.db`) through drift, using the system `libsqlite3` (`sudo apt install libsqlite3-0` if missing). If the port is busy the server exits with code 1. After changing the drift tables, regenerate the database code: `(cd packages/hub_core && dart run build_runner build --delete-conflicting-outputs)`. Check the build with `dart compile exe bin/pi_server.dart -o build/pi_server_check`.
+Since story 3-1 the same listener is a `HubServer` (WebSocket `/ws` transport), and the media routes are mounted into it. Story 3-2 adds the `DevicesModule`: pairing, roles and recovery (see "Pairing, roles and recovery" below). The hub id and settings are in memory (`MemoryTvStore`) until later stories. Devices and pairings live in SQLite (`TVSAVER_DB_FILE`, default `~/tvsaver/hub.db`) through drift, using the system `libsqlite3` (`sudo apt install libsqlite3-0` if missing). If the port is busy the server exits with code 1. After changing the drift tables, regenerate the database code: `(cd packages/hub_core && dart run build_runner build --delete-conflicting-outputs)`. Check the build with `dart compile exe bin/pi_server.dart -o build/pi_server_check`.
 
-The bearer token is temporary (until pairing, story 3-2): the first run creates `~/.config/tvsaver/token` (random 32-byte hex, mode `0600`; override with `TVSAVER_TOKEN_FILE`). Other overrides: `TVSAVER_MEDIA_DIR`, `TVSAVER_PORT`, `TVSAVER_ID`.
+The static bearer token stays for scripts and the admin CLI; the media routes also accept the token of any paired device (so the TV streams with its own token): the first run creates `~/.config/tvsaver/token` (random 32-byte hex, mode `0600`; override with `TVSAVER_TOKEN_FILE`). Other overrides: `TVSAVER_MEDIA_DIR`, `TVSAVER_PORT`, `TVSAVER_ID`.
 
 ```bash
 # PC (Git Bash). Use the Pi's reachable address in PI_HOST (Floor 1 IP while the PC is on Floor 1).
@@ -198,6 +198,21 @@ Good to know:
 - **Read the token** (on the Pi): `cat ~/.config/tvsaver/token`. Never commit it or pass it in URLs.
 - **Rotate the token** (on the Pi): `rm ~/.config/tvsaver/token && pkill -x dart:tvsaver` (systemd relaunches within ~5 s and generates a fresh `0600` token).
 - **Later deploys & rollback**: run `deploy_server.sh` again; it saves the previous binary as `~/tvsaver/bin/tvsaver.prev`, signals the running server so systemd relaunches within ~5 s, and polls `/health` for up to 15 s. To roll back on the Pi: `mv -f ~/tvsaver/bin/tvsaver.prev ~/tvsaver/bin/tvsaver && pkill -x dart:tvsaver`.
+
+### Pairing, roles and recovery (story 3-2)
+
+- **Roles:** the TV is the `display` (never owner; its requests count as owner-equivalent). The first paired phone is `owner`, later phones are `controller`. At most 8 connections: 1 display plus 7 phones.
+- **First display:** while no display is paired, the first TV that says `hello {kind: "display"}` is accepted without a PIN and gets a token. A second TV while the first is connected gets `err conflict`.
+- **New or wiped TV:** if a display is already paired but offline and at least one phone is paired, the new TV waits up to 120 s for any paired phone to send `devices.approveDisplay {requestId}`; on timeout it gets `err timeout`. If no phone is paired, the new TV is accepted and replaces the old display.
+- **Phone pairing:** the TV sends `devices.startPairing`; the Pi then streams `display.pairing {qr, pin, expiresAt}` to the TV on every rotation and after each pairing (`devices.cancelPairing` stops it). Codes are single use and last 120 s; 3 wrong tries lock pairing for 60 s. A phone that tries to pair while no session is open gets `err unavailable`.
+- **Owner phone lost:** on the TV send `devices.forgetAll` (the owner can too). All phone pairings are deleted and their sockets closed; the TV stays connected and the next phone to pair is owner.
+- **Last resort, over SSH on the Pi:**
+
+```bash
+~/tvsaver/bin/tvsaver admin reset-pairings
+```
+
+  Deletes every device (TV and phones). If the server is running, the CLI asks it over loopback (`POST /admin/reset-pairings` on 127.0.0.1 with the static token; other peers get `403`, a wrong token `401`) and all sockets are closed. If it is not running, the CLI deletes the rows in the database file directly. It prints a short message and exits 1 on failure (wrong token, missing database file). Afterwards the next TV is the first display and the next phone is owner.
 
 Reboot test (after the first install):
 - Reboot the Pi (`sudo reboot`).

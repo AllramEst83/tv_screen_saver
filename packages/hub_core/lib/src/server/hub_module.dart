@@ -1,13 +1,18 @@
 import '../db/hub_database.dart';
 
-/// Role of a paired device. The first paired device is the [owner]; later
-/// ones are [controller]s.
+/// Role of a paired device. The first paired phone is the [owner]; later
+/// phones are [controller]s. The TV is the [display]: never owner, but its
+/// requests count as owner-equivalent (physical presence).
 enum DeviceRole {
   owner,
-  controller;
+  controller,
+  display;
 
-  static DeviceRole parse(String? raw) =>
-      raw == 'owner' ? DeviceRole.owner : DeviceRole.controller;
+  static DeviceRole parse(String? raw) => switch (raw) {
+    'owner' => DeviceRole.owner,
+    'display' => DeviceRole.display,
+    _ => DeviceRole.controller,
+  };
 }
 
 /// Immutable value object for a paired device sent over Protocol v1.
@@ -33,6 +38,10 @@ class DeviceInfo {
   final bool online;
 
   bool get isOwner => role == DeviceRole.owner;
+  bool get isDisplay => role == DeviceRole.display;
+
+  /// Owner or display: may do owner-only actions.
+  bool get isOwnerEquivalent => isOwner || isDisplay;
 
   Map<String, Object?> toJson() => {
     'id': id,

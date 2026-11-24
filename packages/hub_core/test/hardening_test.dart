@@ -74,7 +74,6 @@ class _FakeTv {
 }
 
 void main() {
-
   group('server hardening', () {
     late TestHubRig rig;
     setUp(() async => rig = await TestHubRig.start());
@@ -136,6 +135,7 @@ void main() {
     test(
       'wrong PINs decay: failures older than the lockout do not add up',
       () async {
+        rig.server.openPairingSession();
         final p = await rig.connectPhone();
         p.send(HubMsg.hello, {'v': 1, 'client': 'Slow'});
         await p.expectType(HubMsg.pairRequired);
@@ -170,6 +170,7 @@ void main() {
     });
 
     test('QR hello during a lockout gets pair_failed and no paired', () async {
+      rig.server.openPairingSession();
       final p = await rig.connectPhone();
       p.send(HubMsg.hello, {'v': 1, 'client': 'Bad'});
       await p.expectType(HubMsg.pairRequired);
@@ -187,17 +188,18 @@ void main() {
       expect(q.receivedHistory.map((m) => m['t']), isNot(contains('paired')));
     });
 
-    test('two phones pairing at once yield exactly one owner', () async {
+    test('two phones pairing back to back yield exactly one owner', () async {
+      rig.server.openPairingSession();
       final a = await rig.connectPhone();
       final b = await rig.connectPhone();
       a.send(HubMsg.hello, {'v': 1, 'client': 'A'});
       b.send(HubMsg.hello, {'v': 1, 'client': 'B'});
       await a.expectType(HubMsg.pairRequired);
       await b.expectType(HubMsg.pairRequired);
-      final pin = rig.server.pairingCredentials.value!.pin;
-      a.send(HubMsg.pair, {'pin': pin});
-      b.send(HubMsg.pair, {'pin': pin});
+      // Codes are single use: the second PIN is the rotated one.
+      a.send(HubMsg.pair, {'pin': rig.server.pairingCredentials.value!.pin});
       final ra = await a.waitFor((m) => m['t'] == HubMsg.ready);
+      b.send(HubMsg.pair, {'pin': rig.server.pairingCredentials.value!.pin});
       final rb = await b.waitFor((m) => m['t'] == HubMsg.ready);
       final roles = [ra, rb].map((r) => (r['device'] as Map)['role']).toList();
       expect(roles.where((r) => r == 'owner'), hasLength(1));
@@ -234,6 +236,7 @@ void main() {
           pairingTimeout: const Duration(milliseconds: 300),
         );
         addTearDown(rig.dispose);
+        rig.server.openPairingSession();
         final client = newClient(MemoryHubTokenStore());
         await client.connectEndpoint(
           HubEndpoint(
@@ -328,7 +331,7 @@ void main() {
         );
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        await rig.server.forgetPairings();
+        await rig.server.forgetAllPhones();
         await until(
           () => client.state.value.phase == HubConnectionPhase.awaitingPin,
         );

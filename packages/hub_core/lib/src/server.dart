@@ -6,6 +6,7 @@ import 'config.dart';
 import 'db/hub_database.dart';
 import 'mime.dart';
 import 'range.dart';
+import 'server/devices_module.dart';
 import 'server/hub_server.dart';
 import 'tv_store.dart';
 
@@ -40,6 +41,16 @@ class PiServer {
       bindAddress: InternetAddress(address),
       strictPort: true,
     )..registerHttpHandler(handle);
+    hub.registerModule(
+      DevicesModule(
+        db: db,
+        onForgetDevice: hub.forgetDevice,
+        onStartPairing: hub.startPairingFor,
+        onCancelPairing: hub.cancelPairingFor,
+        onApproveDisplay: hub.approveDisplay,
+        onForgetAllPhones: hub.forgetAllPhones,
+      ),
+    );
     _hub = hub;
     await hub.start();
   }
@@ -109,7 +120,21 @@ class PiServer {
       return;
     }
 
-    if (!_authorized(req)) {
+    if (segs.length == 2 && segs[0] == 'admin' && segs[1] == 'reset-pairings') {
+      // Loopback only (the CLI on the Pi), static bearer token required.
+      final peer = req.connectionInfo?.remoteAddress;
+      if (peer == null || !peer.isLoopback) return _plain(req, 403);
+      if (method != 'POST') return _plain(req, 405);
+      if (!_authorized(req)) {
+        req.response.headers.set(HttpHeaders.wwwAuthenticateHeader, 'Bearer');
+        return _plain(req, 401);
+      }
+      await hub.resetAll();
+      return _plain(req, 200);
+    }
+
+    // Static token (dev, scripts) or any paired device token (TV streaming).
+    if (!_authorized(req) && await hub.authenticateHttp(req) == null) {
       req.response.headers.set(HttpHeaders.wwwAuthenticateHeader, 'Bearer');
       return _plain(req, 401);
     }
