@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hub_core/hub_core.dart';
 
 import '../phone_controller.dart';
+import 'now_playing_card.dart';
 
 /// Connected: the Pi's name, this phone's role and the paired devices.
 class HomeScreen extends StatelessWidget {
@@ -28,6 +29,8 @@ class HomeScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            NowPlayingCard(controller: controller),
+            const SizedBox(height: 8),
             if (me != null)
               ListTile(
                 key: const Key('my-role'),

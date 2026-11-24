@@ -7,7 +7,10 @@ import 'db/hub_database.dart';
 import 'mime.dart';
 import 'range.dart';
 import 'server/devices_module.dart';
+import 'server/display_module.dart';
 import 'server/hub_server.dart';
+import 'server/player_module.dart';
+import 'server/playlist_source.dart';
 import 'tv_store.dart';
 
 const serverVersion = 1;
@@ -17,13 +20,21 @@ final _idPattern = RegExp(r'^[A-Za-z0-9._-]+$');
 /// The 2-2 media routes (`/health`, bearer-token `/media/<id>/full` with
 /// Range) as a handler mounted on [HubServer] via `registerHttpHandler`.
 class PiServer {
-  PiServer(this.config, this.token, {HubDatabase? db})
-    : _ownsDb = db == null,
-      db = db ?? HubDatabase.inMemory();
+  PiServer(
+    this.config,
+    this.token, {
+    HubDatabase? db,
+    PlaylistSource? playlists,
+  }) : _ownsDb = db == null,
+       db = db ?? HubDatabase.inMemory(),
+       playlists = playlists ?? MediaDirPlaylistSource(config.mediaDir);
 
   final ServerConfig config;
   final String token;
   final HubDatabase db;
+
+  /// Until story 4-4 this is the `all` playlist: the media directory.
+  final PlaylistSource playlists;
   final bool _ownsDb;
   HubServer? _hub;
   HubServer get hub => _hub!;
@@ -50,6 +61,11 @@ class PiServer {
         onApproveDisplay: hub.approveDisplay,
         onForgetAllPhones: hub.forgetAllPhones,
       ),
+    );
+    final displayModule = DisplayModule(db: db);
+    hub.registerModule(displayModule);
+    hub.registerModule(
+      PlayerModule(db: db, display: displayModule, playlists: playlists),
     );
     _hub = hub;
     await hub.start();

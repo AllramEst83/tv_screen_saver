@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hub_core/hub_core.dart';
 
-import 'multicast_lock.dart';
+import '../shared/multicast_lock.dart';
+import 'now_playing.dart';
 
 /// Which top-level screen the phone shows.
 enum PhoneScreen { loading, connect, pin, home }
@@ -45,6 +46,10 @@ class PhoneController extends ChangeNotifier {
   bool _lockHeld = false;
   bool _disposed = false;
   List<DeviceInfo> _devices = const [];
+  NowPlaying _nowPlaying = const NowPlaying();
+  bool? _displayOnline;
+  bool _tvNotConnected = false;
+  String? _playerError;
 
   HubClientState get hub => client.state.value;
 
@@ -56,6 +61,19 @@ class PhoneController extends ChangeNotifier {
   DeviceInfo? get me => hub.device;
 
   bool get lockHeld => _lockHeld;
+
+  /// What the TV is playing (the `player` module).
+  NowPlaying get nowPlaying => _nowPlaying;
+
+  /// The Pi has no TV connected: the last command got `unavailable`, or the
+  /// `display` module says so.
+  bool get tvNotConnected => _tvNotConnected || _displayOnline == false;
+
+  /// The message of the last player command that failed for another reason.
+  String? get playerError => _playerError;
+
+  /// The playing position now, from the Pi's clock.
+  int get positionMs => _nowPlaying.positionAt(client.tvNowMs());
 
   PhoneScreen get screen {
     if (!_started) return PhoneScreen.loading;
@@ -166,6 +184,47 @@ class PhoneController extends ChangeNotifier {
 
   void submitPin(String pin) => client.submitPin(pin);
 
+  // ---- player ----
+
+  /// Starts the one playlist there is until story 4-4: `all`.
+  Future<void> play() => _player('player.play', {'playlistId': 'all'});
+  Future<void> next() => _player('player.next');
+  Future<void> prev() => _player('player.prev');
+
+  /// Pause when playing, resume otherwise.
+  Future<void> togglePause() =>
+      _player(_nowPlaying.isPlaying ? 'player.pause' : 'player.resume');
+
+  /// Seeks [deltaMs] from the position on screen now.
+  Future<void> seekBy(int deltaMs) {
+    final target = positionMs + deltaMs;
+    return _player('player.seek', {'positionMs': target < 0 ? 0 : target});
+  }
+
+  Future<void> toggleMute() =>
+      _player('player.setMuted', {'muted': !_nowPlaying.muted});
+
+  Future<void> _player(
+    String type, [
+    Map<String, Object?> args = const {},
+  ]) async {
+    try {
+      await client.request(type, args);
+      _tvNotConnected = false;
+      _playerError = null;
+    } on HubError catch (e) {
+      if (e.code == HubErrorCode.unavailable) {
+        _tvNotConnected = true;
+        _playerError = null;
+      } else {
+        _playerError = e.message ?? e.code;
+      }
+    } catch (_) {
+      _playerError = HubMessages.connectionLost;
+    }
+    if (!_disposed) notifyListeners();
+  }
+
   /// Leaves the PIN screen without pairing.
   Future<void> cancelPin() async {
     await client.disconnect();
@@ -234,12 +293,38 @@ class PhoneController extends ChangeNotifier {
     final modules = snap['modules'];
     final devices = modules is Map ? modules['devices'] : null;
     _setDevices(devices is Map ? devices['devices'] : null);
+    final player = NowPlaying.tryParse(
+      modules is Map ? modules['player'] : null,
+    );
+    if (player != null) _nowPlaying = player;
+    final display = modules is Map ? modules['display'] : null;
+    if (display is Map && display['online'] is bool) {
+      _setDisplayOnline(display['online'] as bool);
+    }
+    if (!_disposed) notifyListeners();
   }
 
   void _onEvent(Map<String, dynamic> ev) {
-    if (ev['kind'] != 'devices.changed') return;
     final data = ev['data'];
-    _setDevices(data is Map ? data['devices'] : null);
+    switch (ev['kind']) {
+      case 'devices.changed':
+        _setDevices(data is Map ? data['devices'] : null);
+      case 'player.changed':
+        final player = NowPlaying.tryParse(data);
+        if (player == null) return;
+        _nowPlaying = player;
+        if (!_disposed) notifyListeners();
+      case 'display.changed':
+        if (data is Map && data['online'] is bool) {
+          _setDisplayOnline(data['online'] as bool);
+          if (!_disposed) notifyListeners();
+        }
+    }
+  }
+
+  void _setDisplayOnline(bool online) {
+    _displayOnline = online;
+    if (online) _tvNotConnected = false;
   }
 
   void _setDevices(Object? list) {

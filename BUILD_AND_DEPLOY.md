@@ -312,3 +312,36 @@ aapt dump permissions build/app/outputs/flutter-apk/app-tv-release.apk | grep CA
 ```
 
 Story 3-3: 13,784,172 bytes before, 19,409,444 after (+5.4 MiB, limit +8 MB).
+
+## 13. TV as the paired display, and phone control (story 3-4)
+
+The TV app is now the Pi's display: it shows a pairing QR, plays what the Pi tells it and its remote controls playback. `pi_config.json` and `setup_phase2.sh` are not needed any more for normal use (the Pi stream screen of story 2-3 still reads them).
+
+### Deploy and install
+
+```bash
+(cd packages/hub_core && dart analyze && dart test)
+PI_HOST=<pi-ip> bash tool/pi/deploy_server.sh            # the Pi now has the player and display modules
+flutter build apk --release --flavor tv -t lib/main_tv.dart --target-platform android-arm
+adb -s <tv-ip>:5555 install -r build/app/outputs/flutter-apk/app-tv-release.apk
+flutter build apk --release --flavor phone -t lib/main_phone.dart   # install on the phone as in section 12
+```
+
+What plays is the files in the Pi's media directory (`~/tvsaver/media`, the `all` playlist, sorted by name; dot files and `*.bin` are skipped). The clips of section 11 are enough.
+
+### First run
+
+1. Start the TV app. It finds the Pi by mDNS (the Pi must be on Floor 1 like the TV), joins as the display and, with no phone paired, shows the **pairing screen**: a QR code and a 4-digit PIN. The code refreshes by itself. If the Pi already has a display and no phone, a new TV replaces it; if it has phones, a paired phone has to approve the new TV (`devices.approveDisplay`; the TV waits up to 2 minutes).
+2. On the phone, **Scan QR** and point at the TV. The first phone is `owner`. The TV leaves the pairing screen.
+3. The phone Home screen has **Now playing**. **Play** starts the playlist `all`; the TV shows the first clip within a second. Previous, pause/resume, next, back/forward 30 s and mute are on the card. A second phone shows the same item and position.
+4. TV remote: **OK** pause/resume, **Left/Right** previous/next, **FF/RW** (or the media keys) seek 30 s. **Menu** opens the DisplayReport with the way to the story 1-2 and 2-3 screens (OK: Pi stream, Right: video spike) and, with Left, a pairing code for another phone. **Hold Back for 10 s** is "forget all phones": the TV returns to the pairing screen and the next phone to pair is owner.
+5. With the TV off or the app closed, the phone shows "TV not connected" when you press a control.
+
+### Restart test
+
+1. Play a clip from the phone.
+2. Restart the Pi (`sudo systemctl restart tvsaver`).
+3. Pass: the picture keeps playing without a restart; within about 10 s the TV reconnects (`journalctl -u tvsaver` shows the display connecting) and the phone shows the same item and position again. While the Pi is away the clip loops on the TV and the remote does nothing.
+4. Fail: the clip restarts from the beginning, the TV stays on "The Pi is not reachable", or the phone shows nothing playing after the Pi is back.
+
+The TV logs nothing about tokens. To see what the TV did: `adb -s <tv-ip>:5555 logcat -d -s flutter`.

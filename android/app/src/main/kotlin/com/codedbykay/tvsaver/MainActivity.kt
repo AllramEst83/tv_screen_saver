@@ -19,12 +19,13 @@ class MainActivity : FlutterActivity() {
 
         // Story 1-2 video-path spike: MediaCodecList / display reads and a
         // Media3 SurfaceView player (see VideoSpike.kt).
-        val spike = VideoSpike(this)
+        val videoChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tvsaver/video")
+        // Story 3-4: the item the TV was playing for the Pi reached its end.
+        val spike = VideoSpike(this) { videoChannel.invokeMethod("m3Ended", null) }
         videoSpike = spike
         flutterEngine.platformViewsController.registry
             .registerViewFactory("tvsaver/media3view", spike.factory())
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tvsaver/video")
-            .setMethodCallHandler(spike::onMethodCall)
+        videoChannel.setMethodCallHandler(spike::onMethodCall)
 
         // Phone app: reference-counted Wi-Fi multicast lock for mDNS, and a
         // shortcut to this app's settings page (camera permission).

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:hub_core/hub_core.dart';
-import 'package:tv_saver/phone/multicast_lock.dart';
+import 'package:tv_saver/shared/multicast_lock.dart';
 import 'package:tv_saver/phone/phone_controller.dart';
 
 /// Records lock calls instead of talking to Android.
@@ -60,12 +60,20 @@ Future<void> untilAsync(
 
 /// A real in-process hub (in-memory database, loopback socket).
 class Rig {
-  Rig._(this.db, this.server);
+  Rig._(this.db, this.server, this.display, this.player);
 
   final HubDatabase db;
   final HubServer server;
 
-  static Future<Rig> start({int port = 0, String? dbFile}) async {
+  /// Set when the rig was started with `playlists`.
+  final DisplayModule? display;
+  final PlayerModule? player;
+
+  static Future<Rig> start({
+    int port = 0,
+    String? dbFile,
+    PlaylistSource? playlists,
+  }) async {
     final db = dbFile == null
         ? HubDatabase.inMemory()
         : HubDatabase.open(dbFile);
@@ -85,8 +93,16 @@ class Rig {
         onForgetAllPhones: server.forgetAllPhones,
       ),
     );
+    DisplayModule? display;
+    PlayerModule? player;
+    if (playlists != null) {
+      display = DisplayModule(db: db);
+      player = PlayerModule(db: db, display: display, playlists: playlists);
+      server.registerModule(display);
+      server.registerModule(player);
+    }
     await server.start();
-    return Rig._(db, server);
+    return Rig._(db, server, display, player);
   }
 
   /// Opens a pairing session and returns its QR URI.

@@ -4,16 +4,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'package:hub_core/hub_core.dart';
+
+import 'shared/secure_token_store.dart';
+import 'tv/display/display_client.dart';
+import 'tv/display/display_native.dart';
+import 'tv/display/display_screen.dart';
 import 'tv/display_report.dart';
-import 'tv/pi/pi_screen.dart';
-import 'tv/report_screen.dart';
+import 'tv/menu_screen.dart';
 import 'tv/video_spike/spike_log.dart';
 import 'tv/video_spike/spike_native.dart';
-import 'tv/video_spike/spike_screen.dart';
 
 /// TV app entry point (flavor `tv`, `com.codedbykay.tvsaver.tv`).
 ///
-/// Phase 1 spike: full screen, shows and logs the DisplayReport.
+/// The TV is the paired display of the Pi: it shows the pairing QR while no
+/// phone is paired and plays what the Pi tells it. The Menu key opens the
+/// DisplayReport and the earlier spikes.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -37,17 +43,54 @@ Future<void> main() async {
   // Story 1-2: what the TV can decode (HEVC profiles, AC-3 / E-AC-3).
   unawaited(logVideoDecoders(const ChannelSpikeNative()));
 
-  runApp(TvSaverApp(version: version, panel: panel));
+  final store = SecureTokenStore();
+  final display = DisplayClient(
+    client: HubClient(
+      tokenStore: store,
+      clientName: 'TV',
+      kind: 'display',
+      // A new TV may wait for a phone to approve it (the Pi allows 120 s).
+      handshakeTimeout: const Duration(seconds: 125),
+    ),
+    store: store,
+    native: ChannelDisplayNative(),
+  );
+
+  runApp(
+    TvSaverApp(
+      version: version,
+      panel: panel,
+      homeBuilder: (context) => DisplayScreen(
+        client: display,
+        menuBuilder: (ctx, onPairPhone) => Scaffold(
+          backgroundColor: Colors.black,
+          body: TvMenuScreen(
+            version: version,
+            panel: panel,
+            onPairPhone: onPairPhone,
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class TvSaverApp extends StatelessWidget {
-  const TvSaverApp({super.key, required this.version, this.panel});
+  const TvSaverApp({
+    super.key,
+    required this.version,
+    this.panel,
+    this.homeBuilder,
+  });
 
   final String version;
 
   /// Native panel size from [DisplayReport.fetchPanelSize]; null falls back
   /// to `view.display.size` (marked "panel unverified").
   final PanelSize? panel;
+
+  /// The home screen; null shows the menu (DisplayReport and the spikes).
+  final WidgetBuilder? homeBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -57,63 +100,11 @@ class TvSaverApp extends StatelessWidget {
       theme: ThemeData(brightness: Brightness.dark),
       home: Scaffold(
         backgroundColor: Colors.black,
-        body: _SpikeLauncher(
-          child: ReportScreen(
-            version: version,
-            read: () => DisplayReport.read(panel: panel),
-          ),
+        body: Builder(
+          builder:
+              homeBuilder ??
+              (_) => TvMenuScreen(version: version, panel: panel),
         ),
-      ),
-    );
-  }
-}
-
-/// Wraps the report screen: OK / Enter opens the Pi stream & throughput screen
-/// (story 2-3), Right arrow opens the local video spike (story 1-2). The
-/// report screen itself is unchanged.
-class _SpikeLauncher extends StatelessWidget {
-  const _SpikeLauncher({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final height = MediaQuery.sizeOf(context).height;
-    return Focus(
-      autofocus: true,
-      onKeyEvent: (node, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        final key = event.logicalKey;
-        if (key == LogicalKeyboardKey.select ||
-            key == LogicalKeyboardKey.enter) {
-          Navigator.of(
-            context,
-          ).push(MaterialPageRoute<void>(builder: (_) => const PiScreen()));
-          return KeyEventResult.handled;
-        }
-        if (key == LogicalKeyboardKey.arrowRight) {
-          Navigator.of(
-            context,
-          ).push(MaterialPageRoute<void>(builder: (_) => const SpikeScreen()));
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: Stack(
-        children: [
-          child,
-          Positioned(
-            right: height * 0.1,
-            bottom: height * 0.08,
-            child: Text(
-              'OK: Pi stream   Right: video spike',
-              style: TextStyle(
-                color: const Color(0xFFD0D0D0),
-                fontSize: height * 0.035,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

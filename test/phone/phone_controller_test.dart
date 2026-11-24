@@ -6,7 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hub_core/hub_core.dart';
 import 'package:tv_saver/phone/phone_controller.dart';
-import 'package:tv_saver/phone/secure_token_store.dart';
+import 'package:tv_saver/shared/secure_token_store.dart';
 
 import 'support.dart';
 

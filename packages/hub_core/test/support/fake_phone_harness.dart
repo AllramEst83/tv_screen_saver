@@ -289,6 +289,8 @@ class TestHubRig {
     required this.server,
     required this.counter,
     required this.hot,
+    this.displayModule,
+    this.player,
   });
 
   final FakeClock clock;
@@ -297,6 +299,10 @@ class TestHubRig {
   final HubServer server;
   final CountingInterceptor counter;
   final HotRelayModule hot;
+
+  /// Set when the rig was started with `playlists`.
+  final DisplayModule? displayModule;
+  final PlayerModule? player;
 
   final List<TestPhone> phones = [];
 
@@ -309,6 +315,7 @@ class TestHubRig {
     Duration idleTimeout = const Duration(seconds: 20),
     Duration pairingTimeout = const Duration(seconds: 120),
     Duration pairCodeTtl = const Duration(seconds: 120),
+    PlaylistSource? playlists,
   }) async {
     final clock = FakeClock();
     final counter = CountingInterceptor();
@@ -338,6 +345,19 @@ class TestHubRig {
     final hot = HotRelayModule();
     server.registerModule(devices);
     server.registerModule(hot);
+    DisplayModule? displayModule;
+    PlayerModule? player;
+    if (playlists != null) {
+      displayModule = DisplayModule(db: database);
+      player = PlayerModule(
+        db: database,
+        display: displayModule,
+        playlists: playlists,
+        now: clock.now,
+      );
+      server.registerModule(displayModule);
+      server.registerModule(player);
+    }
     await server.start();
     return TestHubRig._(
       clock: clock,
@@ -346,6 +366,8 @@ class TestHubRig {
       server: server,
       counter: counter,
       hot: hot,
+      displayModule: displayModule,
+      player: player,
     );
   }
 

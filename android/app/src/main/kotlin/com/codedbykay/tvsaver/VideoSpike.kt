@@ -43,9 +43,20 @@ import java.io.IOException
  *    cannot do a two-item playlist loop or report decoder / dropped frames, so
  *    the loop strategies and the stats come from here. Read-only: nothing here
  *    changes a TV setting.
+ *
+ * Story 3-4 (the TV as the paired display) adds one-item playback:
+ *
+ *  - `m3OpenItem {url, headers, startMs, muted, playing}`: one HTTP item with
+ *    `Authorization` headers, no repeat; `onItemEnded` fires when it ends.
+ *  - `m3Control {action}` gains `resume`, `seek {positionMs}` and
+ *    `mute {muted}` (player volume only, never the TV's volume).
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-class VideoSpike(private val activity: Activity) {
+class VideoSpike(
+    private val activity: Activity,
+    /** Called on the main thread when the current `m3OpenItem` item played to its end. */
+    private val onItemEnded: () -> Unit = {},
+) {
     private var surfaceView: SurfaceView? = null
     private var player: ExoPlayer? = null
     private var decoderName: String? = null
@@ -53,6 +64,12 @@ class VideoSpike(private val activity: Activity) {
     private var inputFormat: Format? = null
     private var loopMode = "repeatOne"
     private var lastHttpStatus: Int? = null
+
+    private val endListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_ENDED) onItemEnded()
+        }
+    }
 
     private val analytics = object : AnalyticsListener {
         override fun onVideoDecoderInitialized(
@@ -145,11 +162,29 @@ class VideoSpike(private val activity: Activity) {
                     m3OpenHttp(urls, headers)
                     result.success(null)
                 }
+                "m3OpenItem" -> {
+                    val url = call.argument<String>("url")
+                    if (url.isNullOrEmpty()) {
+                        result.error("invalid_args", "url must not be empty", null)
+                        return
+                    }
+                    val headers = call.argument<Map<String, String>>("headers") ?: emptyMap()
+                    m3OpenItem(
+                        url,
+                        headers,
+                        (call.argument<Number>("startMs") ?: 0).toLong(),
+                        call.argument<Boolean>("muted") ?: false,
+                        call.argument<Boolean>("playing") ?: true,
+                    )
+                    result.success(null)
+                }
                 "m3Stats" -> result.success(m3Stats())
                 "m3Control" -> {
                     when (call.argument<String>("action")) {
-                        "play" -> player?.play()
+                        "play", "resume" -> player?.play()
                         "pause" -> player?.pause()
+                        "seek" -> player?.seekTo((call.argument<Number>("positionMs") ?: 0).toLong())
+                        "mute" -> player?.volume = if (call.argument<Boolean>("muted") == true) 0f else 1f
                         "next" -> player?.seekToNextMediaItem()
                         "prev" -> player?.seekToPreviousMediaItem()
                         "release" -> m3Release()
@@ -218,8 +253,42 @@ class VideoSpike(private val activity: Activity) {
         player = exo
     }
 
+    /** One item over HTTP, started at [startMs], played once (the Dart side decides what comes next). */
+    private fun m3OpenItem(
+        url: String,
+        headers: Map<String, String>,
+        startMs: Long,
+        muted: Boolean,
+        playing: Boolean,
+    ) {
+        m3Release()
+        decoderName = null
+        droppedFrames = 0
+        inputFormat = null
+        lastHttpStatus = null
+        loopMode = "item"
+        val httpFactory = DefaultHttpDataSource.Factory()
+        if (headers.isNotEmpty()) {
+            httpFactory.setDefaultRequestProperties(headers)
+        }
+        val exo = ExoPlayer.Builder(activity)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(activity).setDataSourceFactory(httpFactory))
+            .build()
+        exo.addAnalyticsListener(analytics)
+        exo.addListener(endListener)
+        exo.setMediaItem(MediaItem.fromUri(url))
+        exo.repeatMode = Player.REPEAT_MODE_OFF
+        exo.volume = if (muted) 0f else 1f
+        if (startMs > 0) exo.seekTo(startMs)
+        surfaceView?.let { exo.setVideoSurfaceView(it) }
+        exo.prepare()
+        exo.playWhenReady = playing
+        player = exo
+    }
+
     private fun m3Release() {
         player?.let {
+            it.removeListener(endListener)
             it.removeAnalyticsListener(analytics)
             it.release()
         }

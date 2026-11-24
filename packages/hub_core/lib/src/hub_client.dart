@@ -113,7 +113,7 @@ bool isConnectionRefused(Object e) {
 
 enum _Open { ok, refused, failed }
 
-/// Phone-side Hub Protocol v1 WebSocket client.
+/// Phone- or display-side Hub Protocol v1 WebSocket client.
 ///
 /// Handles QR one-step pairing, mDNS plus 4-digit PIN pairing, rtt-based clock
 /// offset, correlated `rid` requests, snapshot resync on `rev` gap, and
@@ -123,6 +123,8 @@ class HubClient {
   HubClient({
     required this.tokenStore,
     required this.clientName,
+    this.kind = 'phone',
+    this.handshakeTimeout = const Duration(seconds: 5),
     HubScanner? scanner,
     DateTime Function()? now,
     this.directTimeout = const Duration(milliseconds: 2500),
@@ -141,6 +143,14 @@ class HubClient {
 
   final HubTokenStore tokenStore;
   final String clientName;
+
+  /// `phone` (the default) or `display`: what the hello announces. A display
+  /// is the TV; the Pi pairs it without a PIN (see `HubServer`).
+  final String kind;
+
+  /// How long a fresh connection may wait for `ready`. A display the Pi wants
+  /// a phone to approve needs the Pi's whole approval window.
+  final Duration handshakeTimeout;
   final HubScanner _scanner;
   final DateTime Function() _now;
   final Duration directTimeout;
@@ -273,7 +283,7 @@ class HubClient {
       _setOpenFailure(outcome);
       return false;
     }
-    final ok = await _awaitHandshake(const Duration(seconds: 5), gen);
+    final ok = await _awaitHandshake(handshakeTimeout, gen);
     if (!ok &&
         gen == _generation &&
         !_terminal &&
@@ -589,6 +599,7 @@ class HubClient {
         encodeFrame(HubMsg.hello, {
           'v': kProtocolVersion,
           'client': clientName,
+          if (kind != 'phone') 'kind': kind,
           if (token != null && token.isNotEmpty) 'token': token,
           if (pairCode != null && pairCode.isNotEmpty) 'pairCode': pairCode,
         }),

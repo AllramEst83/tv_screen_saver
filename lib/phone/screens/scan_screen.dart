@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:hub_core/hub_core.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import '../multicast_lock.dart';
+import '../../shared/multicast_lock.dart';
 import '../phone_controller.dart';
 
 /// Why the camera view cannot scan.

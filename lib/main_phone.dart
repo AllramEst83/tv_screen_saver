@@ -6,7 +6,7 @@ import 'phone/screens/connect_screen.dart';
 import 'phone/screens/home_screen.dart';
 import 'phone/screens/pin_screen.dart';
 import 'phone/screens/scan_screen.dart';
-import 'phone/secure_token_store.dart';
+import 'shared/secure_token_store.dart';
 
 /// Phone app entry point (flavor `phone`, `com.codedbykay.tvsaver`).
 void main() {
