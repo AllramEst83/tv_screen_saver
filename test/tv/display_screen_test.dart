@@ -420,4 +420,23 @@ void main() {
     expect(calls, contains('SystemChrome.setEnabledSystemUIMode'));
     expect(awake.calls, contains('hold'));
   });
+
+  testWidgets('a clip keeps its own shape on the video surface', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    Size videoSize() => tester.getSize(find.byKey(const Key('fake-video')));
+    final before = videoSize();
+    client.player.videoAspect.value = 4 / 3;
+    await tester.pump();
+    expect(find.byType(AspectRatio), findsOneWidget);
+    expect(
+      tester.widget<AspectRatio>(find.byType(AspectRatio)).aspectRatio,
+      closeTo(4 / 3, 0.001),
+    );
+    expect(videoSize(), isNot(before));
+    client.player.videoAspect.value = null;
+    await tester.pump();
+    expect(find.byType(AspectRatio), findsNothing);
+  });
 }

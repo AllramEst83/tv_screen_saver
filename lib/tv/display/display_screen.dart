@@ -17,6 +17,9 @@ import 'playback_log.dart';
 import 'image_stage.dart';
 import 'pairing_view.dart';
 
+/// The platform view type of the photo surface.
+const imageViewType = 'tvsaver/imageview';
+
 /// How long Back is held to forget every phone.
 const forgetAllHold = Duration(seconds: 10);
 
@@ -309,11 +312,29 @@ class _DisplayScreenState extends State<DisplayScreen>
             fit: StackFit.expand,
             children: [
               if (!_menuOpen)
-                Center(
-                  child:
-                      widget.media3View?.call(_onMedia3ViewCreated) ??
-                      _media3View(),
+                ValueListenableBuilder<double?>(
+                  valueListenable: _client.player.videoAspect,
+                  builder: (context, aspect, _) {
+                    final view =
+                        widget.media3View?.call(_onMedia3ViewCreated) ??
+                        _media3View();
+                    // Keep the clip's own shape: the surface would otherwise
+                    // stretch it to the whole screen.
+                    return Center(
+                      child: aspect == null
+                          ? view
+                          : AspectRatio(aspectRatio: aspect, child: view),
+                    );
+                  },
                 ),
+              Positioned.fill(
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: _client.player.nativeImageActive,
+                  builder: (context, on, _) => on && !_menuOpen
+                      ? _imageSurfaceView()
+                      : const SizedBox.shrink(),
+                ),
+              ),
               Positioned.fill(child: ImageStage(slots: _client.player.image)),
               if (!_client.player.hasItem && !_client.needsPairing) _idleView(),
               if (_infoVisible && _client.player.hasItem)
@@ -394,6 +415,26 @@ class _DisplayScreenState extends State<DisplayScreen>
       ),
     );
   }
+
+  /// The native photo surface (3840x2160 buffer, see `ImageSurface.kt`).
+  Widget _imageSurfaceView() => PlatformViewLink(
+    viewType: imageViewType,
+    surfaceFactory: (context, controller) => AndroidViewSurface(
+      controller: controller as AndroidViewController,
+      gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+      hitTestBehavior: PlatformViewHitTestBehavior.transparent,
+    ),
+    onCreatePlatformView: (params) {
+      return PlatformViewsService.initExpensiveAndroidView(
+          id: params.id,
+          viewType: imageViewType,
+          layoutDirection: TextDirection.ltr,
+          creationParamsCodec: const StandardMessageCodec(),
+        )
+        ..addOnPlatformViewCreatedListener(params.onPlatformViewCreated)
+        ..create();
+    },
+  );
 
   Future<void> _onMedia3ViewCreated(int id) => _client.player.viewCreated();
 

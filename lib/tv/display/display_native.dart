@@ -32,6 +32,11 @@ abstract class DisplayVideoNative {
     int durationMs = 0,
   });
 
+  /// The native photo is no longer wanted (a clip is next, or nothing):
+  /// free it. The photo surface itself is a view Dart puts in the tree only
+  /// while a photo shows.
+  Future<void> clearImage();
+
   Future<void> pause();
   Future<void> resume();
   Future<void> seek(int positionMs);
@@ -111,6 +116,9 @@ class ChannelDisplayNative implements DisplayVideoNative {
         'durationMs': durationMs,
       }) ??
       false;
+
+  @override
+  Future<void> clearImage() => _call<void>('m3ClearImage');
 
   @override
   Future<void> pause() => _call<void>('m3Control', {'action': 'pause'});

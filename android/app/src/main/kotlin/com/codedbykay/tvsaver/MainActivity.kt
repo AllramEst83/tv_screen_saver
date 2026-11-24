@@ -27,6 +27,8 @@ class MainActivity : FlutterActivity() {
         videoSpike = spike
         flutterEngine.platformViewsController.registry
             .registerViewFactory("tvsaver/media3view", spike.factory())
+        flutterEngine.platformViewsController.registry
+            .registerViewFactory("tvsaver/imageview", spike.imageFactory())
         videoChannel.setMethodCallHandler(spike::onMethodCall)
 
         // Phone app: reference-counted Wi-Fi multicast lock for mDNS, and a

@@ -20,9 +20,14 @@ import kotlin.math.min
  * Story 5-3. Photos on a hardware surface at the panel's own size.
  *
  * Flutter draws the UI plane at 1080p on the X90K, which would halve the
- * resolution of every photo. The Media3 [SurfaceView] is a separate layer the
- * compositor scales to the screen, so a photo drawn onto it with the buffer
- * fixed at 3840x2160 reaches the panel pixel for pixel.
+ * resolution of every photo. A SurfaceView is a separate layer the compositor
+ * scales to the screen, so a photo drawn onto it with the buffer fixed at
+ * 3840x2160 reaches the panel pixel for pixel.
+ *
+ * This is a SurfaceView of its own (platform view `tvsaver/imageview`), never
+ * the one the video decoder writes to: a Surface has one producer at a time,
+ * and a canvas that has drawn on it keeps the decoder out. Dart puts the view
+ * in the tree while a photo shows and takes it out for a clip.
  *
  * One photo is decoded at a time on its own thread (at most 3840x2160, never
  * enlarged, in the file's own colour space with its EXIF rotation applied by
@@ -40,64 +45,121 @@ class ImageSurface(private val activity: Activity) {
     /** The photo fully on screen; touched on [thread] only. */
     private var shown: Bitmap? = null
 
+    /** The view the photos go on; null while Dart has it out of the tree. */
+    @Volatile
+    private var view: SurfaceView? = null
+
+    /** The photo that belongs on a (re)created view: the last one shown. */
+    @Volatile
+    private var currentPath: String? = null
+
+    private class Request(
+        val path: String,
+        val crossfadeMs: Int,
+        val kenBurns: Boolean,
+        val durationMs: Int,
+        val done: (Boolean) -> Unit,
+    )
+
+    /** A request that came before the view existed; the newest one only. */
+    private var waiting: Request? = null
+
+    fun attach(v: SurfaceView) {
+        v.holder.setFixedSize(TARGET_W, TARGET_H)
+        view = v
+        val request = synchronized(this) { waiting.also { waiting = null } }
+        if (request != null) {
+            start(request)
+        } else {
+            // The view came back (after the menu): draw the photo again.
+            currentPath?.let { path ->
+                start(Request(path, 0, false, 0) {})
+            }
+        }
+    }
+
+    fun detach(v: SurfaceView) {
+        if (view === v) {
+            view = null
+            seq.incrementAndGet()
+        }
+    }
+
     /**
      * Draws [path]. [done] is called on the main thread with true once the
      * first frame is on screen, or false when the photo cannot be shown here.
      */
     fun show(
-        view: SurfaceView?,
         path: String,
         crossfadeMs: Int,
         kenBurns: Boolean,
         durationMs: Int,
         done: (Boolean) -> Unit,
     ) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || view == null) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
             done(false)
             return
         }
-        val mine = seq.incrementAndGet()
-        view.post { view.holder.setFixedSize(TARGET_W, TARGET_H) }
+        val request = Request(path, crossfadeMs, kenBurns, durationMs, done)
+        currentPath = path
+        if (view == null) {
+            // Dart has just put the view in the tree: it is created in a moment.
+            val old = synchronized(this) { waiting.also { waiting = request } }
+            old?.let { finish(it.done, true) } // superseded
+            activity.window.decorView.postDelayed({
+                val still = synchronized(this) {
+                    if (waiting === request) {
+                        waiting = null
+                        true
+                    } else {
+                        false
+                    }
+                }
+                if (still) finish(done, false) // no view came: the Flutter widget shows it
+            }, VIEW_WAIT_MS)
+            return
+        }
+        start(request)
+    }
+
+    /** Forget the photo and free its memory (a clip is next, or nothing). */
+    fun clear() {
+        seq.incrementAndGet()
+        currentPath = null
+        val old = synchronized(this) { waiting.also { waiting = null } }
+        old?.let { finish(it.done, true) }
         handler.post {
+            shown?.recycle()
+            shown = null
+        }
+    }
+
+    fun dispose() {
+        clear()
+        thread.quitSafely()
+    }
+
+    private fun start(r: Request) {
+        val mine = seq.incrementAndGet()
+        handler.post {
+            val v = view
             val bitmap = try {
-                decode(path)
+                decode(r.path)
             } catch (t: Throwable) {
                 null
             }
-            if (bitmap == null) {
-                finish(done, false)
+            if (bitmap == null || v == null) {
+                bitmap?.recycle()
+                finish(r.done, false)
                 return@post
             }
             if (mine != seq.get()) {
                 bitmap.recycle()
-                finish(done, true) // a newer photo took over
+                finish(r.done, true) // a newer photo took over
                 return@post
             }
-            animate(view, mine, bitmap, crossfadeMs, kenBurns, durationMs, done)
+            animate(v, mine, bitmap, r.crossfadeMs, r.kenBurns, r.durationMs, r.done)
         }
-    }
-
-    /** Stops drawing and, when [blank], paints the surface black. */
-    fun stop(view: SurfaceView?, blank: Boolean) {
-        seq.incrementAndGet()
-        handler.post {
-            if (blank && view != null) {
-                drawFrame(view, null, null, 1f, 1f)
-            }
-            shown?.recycle()
-            shown = null
-        }
-        // The video decoder sizes its own buffers; give the layout back.
-        view?.post { view.holder.setSizeFromLayout() }
-    }
-
-    fun dispose() {
-        seq.incrementAndGet()
-        handler.post {
-            shown?.recycle()
-            shown = null
-        }
-        thread.quitSafely()
     }
 
     private fun finish(done: (Boolean) -> Unit, ok: Boolean) {
@@ -216,5 +278,8 @@ class ImageSurface(private val activity: Activity) {
         const val TARGET_W = 3840
         const val TARGET_H = 2160
         private const val FRAME_MS = 16L
+
+        /** How long a photo waits for its view to be created. */
+        private const val VIEW_WAIT_MS = 3000L
     }
 }

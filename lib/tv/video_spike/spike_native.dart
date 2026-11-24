@@ -82,6 +82,7 @@ class Media3Stats {
     this.duration,
     this.item,
     this.httpStatus,
+    this.aspect,
   });
 
   final String? decoder;
@@ -93,6 +94,9 @@ class Media3Stats {
   final Duration? duration;
   final int? item;
   final int? httpStatus;
+
+  /// Width over height of the picture as shown; null until known.
+  final double? aspect;
 
   static Media3Stats? fromMap(Map<Object?, Object?>? m) {
     if (m == null) return null;
@@ -107,6 +111,7 @@ class Media3Stats {
       duration: durMs == null ? null : Duration(milliseconds: durMs),
       item: m['item'] as int?,
       httpStatus: m['httpStatus'] as int?,
+      aspect: (m['aspect'] as num?)?.toDouble(),
     );
   }
 }

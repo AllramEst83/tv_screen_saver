@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tv_saver/tv/cache/media_cache.dart';
 import 'package:tv_saver/tv/display/display_player.dart';
 
+import 'package:tv_saver/tv/video_spike/spike_native.dart';
+
 import 'support.dart';
 
 void main() {
@@ -335,21 +337,59 @@ void main() {
       expect(ended, ['p.jpg']);
     });
 
-    test('a new surface (after the menu) gets the photo again', () async {
+    test('the photo surface is wanted only while a photo shows', () async {
+      expect(player.nativeImageActive.value, isFalse);
       await photo('p.jpg');
+      expect(player.nativeImageActive.value, isTrue);
+      // A menu closing and opening the video view does not redraw from Dart:
+      // the native side redraws its own surface when it is created again.
       native.shows.clear();
       await player.viewDisposed();
       await player.viewCreated();
-      expect(native.shows.single.path, endsWith('p.jpg.full'));
-      expect(native.shows.single.crossfadeMs, 0);
+      expect(native.shows, isEmpty);
+      expect(player.nativeImageActive.value, isTrue);
+      // A clip takes it away and frees the photo.
+      native.calls.clear();
+      await player.load(itemId: 'v.mp4', url: url('v.mp4'), headers: headers);
+      expect(player.nativeImageActive.value, isFalse);
+      expect(native.calls, contains('clearImage'));
     });
 
-    test('stop blanks the surface', () async {
+    test('a TV that cannot draw natively never asks for the surface', () async {
+      native.imageSupported = false;
+      await photo('p.jpg');
+      expect(player.nativeImageActive.value, isFalse);
+    });
+
+    test('stop frees the photo and the surface', () async {
       await photo('p.jpg');
       native.calls.clear();
       await player.control('stop');
-      expect(native.calls, contains('release'));
+      expect(native.calls, containsAll(['clearImage', 'release']));
+      expect(player.nativeImageActive.value, isFalse);
       expect(player.hasItem, isFalse);
+    });
+  });
+
+  group('the shape of a clip', () {
+    test(
+      'the shape the decoder reports reaches the screen; a new clip resets it',
+      () async {
+        await player.load(itemId: 'v.mp4', url: url('v.mp4'), headers: headers);
+        expect(player.videoAspect.value, isNull);
+        native.statsValue = const Media3Stats(aspect: 4 / 3);
+        await player.freshSnapshot();
+        expect(player.videoAspect.value, closeTo(4 / 3, 0.001));
+        await player.load(itemId: 'w.mp4', url: url('w.mp4'), headers: headers);
+        expect(player.videoAspect.value, isNull);
+      },
+    );
+
+    test('an unknown or silly shape is ignored', () async {
+      await player.load(itemId: 'v.mp4', url: url('v.mp4'), headers: headers);
+      native.statsValue = const Media3Stats(aspect: 0);
+      await player.freshSnapshot();
+      expect(player.videoAspect.value, isNull);
     });
   });
 }

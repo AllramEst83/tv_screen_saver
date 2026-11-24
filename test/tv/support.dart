@@ -82,6 +82,9 @@ class FakeDisplayNative implements DisplayVideoNative {
   }
 
   @override
+  Future<void> clearImage() async => calls.add('clearImage');
+
+  @override
   Future<void> pause() async => calls.add('pause');
 
   @override

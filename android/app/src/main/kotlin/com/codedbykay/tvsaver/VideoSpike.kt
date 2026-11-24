@@ -16,6 +16,7 @@ import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DecoderReuseEvaluation
@@ -186,15 +187,18 @@ class VideoSpike(
                         result.error("invalid_args", "path must not be empty", null)
                         return
                     }
-                    // The video player gives way; the picture is drawn on its surface.
+                    // The video player gives way; the photo has a surface of its own.
                     player?.let { m3Release() }
                     images.show(
-                        surfaceView,
                         path,
                         call.argument<Number>("crossfadeMs")?.toInt() ?: 0,
                         call.argument<Boolean>("kenBurns") ?: false,
                         call.argument<Number>("durationMs")?.toInt() ?: 0,
                     ) { ok -> result.success(ok) }
+                }
+                "m3ClearImage" -> {
+                    images.clear()
+                    result.success(null)
                 }
                 "m3Stats" -> result.success(m3Stats())
                 "m3Control" -> {
@@ -308,7 +312,9 @@ class VideoSpike(
             httpFactory.setDefaultRequestProperties(headers)
         }
         val exo = ExoPlayer.Builder(activity)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(activity).setDataSourceFactory(httpFactory))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(activity)
+                    // http for streaming, file for a clip played from the TV cache.
+                    .setDataSourceFactory(DefaultDataSource.Factory(activity, httpFactory)))
             .build()
         exo.addAnalyticsListener(analytics)
         exo.addListener(endListener)
@@ -324,7 +330,6 @@ class VideoSpike(
     }
 
     private fun m3Release() {
-        images.stop(surfaceView, blank = true)
         player?.let {
             it.removeListener(endListener)
             it.removeAnalyticsListener(analytics)
@@ -345,6 +350,31 @@ class VideoSpike(
         return null
     }
 
+    private fun displayAspect(p: ExoPlayer?): Double? {
+        val size = p?.videoSize ?: return null
+        if (size.width <= 0 || size.height <= 0) return null
+        var w = size.width * size.pixelWidthHeightRatio.toDouble()
+        var h = size.height.toDouble()
+        if (size.unappliedRotationDegrees == 90 || size.unappliedRotationDegrees == 270) {
+            val t = w
+            w = h
+            h = t
+        }
+        return w / h
+    }
+
+    /** The photo surface: a view of its own, never the one the decoder uses. */
+    fun imageFactory(): PlatformViewFactory = object : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
+        override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
+            val view = SurfaceView(context)
+            images.attach(view)
+            return object : PlatformView {
+                override fun getView(): View = view
+                override fun dispose() = images.detach(view)
+            }
+        }
+    }
+
     private fun m3Stats(): Map<String, Any?> {
         val p = player
         val fmt = p?.videoFormat ?: inputFormat
@@ -361,6 +391,9 @@ class VideoSpike(
             "droppedFrames" to droppedFrames,
             "width" to fmt?.width,
             "height" to fmt?.height,
+            // Shape of the picture as it is shown (rotation and pixel shape
+            // applied), so the Dart side can keep it from being stretched.
+            "aspect" to displayAspect(p),
             "frameRate" to fmt?.frameRate?.takeIf { it > 0f },
             "hdr" to hdrName(fmt),
             "httpStatus" to (extractHttpStatus(err) ?: lastHttpStatus),

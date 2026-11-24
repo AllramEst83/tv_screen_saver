@@ -125,6 +125,13 @@ class DisplayPlayer {
   /// stays awake only then.
   final ValueNotifier<bool> active = ValueNotifier(false);
 
+  /// Width over height of the clip on screen, once the decoder knows it; the
+  /// screen sizes the video surface by it so nothing is stretched.
+  final ValueNotifier<double?> videoAspect = ValueNotifier(null);
+
+  /// The native photo surface is wanted in the tree (a photo is on it).
+  final ValueNotifier<bool> nativeImageActive = ValueNotifier(false);
+
   /// What the info overlay shows about the current item.
   ItemInfo? info;
 
@@ -238,6 +245,7 @@ class DisplayPlayer {
     }
     _isImage = false;
     _stopImage();
+    videoAspect.value = null;
     var playUrl = url;
     var playHeaders = Map<String, String>.of(headers);
     final c = cache;
@@ -329,6 +337,8 @@ class DisplayPlayer {
     if (seq != _loadSeq || _disposed) return;
     var drawn = false;
     if (nativeImages) {
+      nativeImageActive.value = true; // the surface is created now
+      videoAspect.value = null;
       drawn = await native.showImage(
         path: file.path,
         crossfadeMs: crossfade ? 800 : 0,
@@ -336,6 +346,7 @@ class DisplayPlayer {
         durationMs: imageMs,
       );
       if (seq != _loadSeq || _disposed) return;
+      if (!drawn) nativeImageActive.value = false;
     }
     _nativeImagePath = drawn ? file.path : null;
     _imageBefore = startAtMs.clamp(0, imageMs);
@@ -378,7 +389,11 @@ class DisplayPlayer {
     _imageTimer = null;
     _imageSince = null;
     _imageBefore = 0;
+    if (_nativeImagePath != null || nativeImageActive.value) {
+      unawaited(native.clearImage());
+    }
     _nativeImagePath = null;
+    nativeImageActive.value = false;
     image.value = null;
   }
 
@@ -461,10 +476,8 @@ class DisplayPlayer {
   Future<void> viewCreated() async {
     _viewReady = true;
     if (_isImage) {
-      // A Flutter photo is a widget and needs nothing; the native surface is
-      // new again and must be drawn once more.
-      final path = _nativeImagePath;
-      if (path != null && !_disposed) await native.showImage(path: path);
+      // A photo needs nothing here: a Flutter one is a widget, and the
+      // native surface draws its photo again when it is created.
       return;
     }
     if (_itemId != null && _url != null && !_disposed) {
@@ -522,6 +535,10 @@ class DisplayPlayer {
     final s = await native.stats();
     if (_disposed || s == null || seq != _loadSeq || _itemId == null) return;
     _positionMs = s.position.inMilliseconds;
+    final aspect = s.aspect;
+    if (aspect != null && aspect > 0 && videoAspect.value != aspect) {
+      videoAspect.value = aspect;
+    }
     final dur = s.duration;
     if (dur != null && dur > Duration.zero) {
       _durationMs = dur.inMilliseconds;
@@ -614,6 +631,8 @@ class DisplayPlayer {
     _unpin();
     active.value = false;
     active.dispose();
+    videoAspect.dispose();
+    nativeImageActive.dispose();
     image.dispose();
     native.onEnded = null;
     await native.release();
