@@ -10,6 +10,7 @@ import 'package:hub_core/hub_core.dart';
 
 import 'shared/secure_token_store.dart';
 import 'tv/cache/media_cache.dart';
+import 'tv/cache/storage.dart';
 import 'tv/display/playback_log.dart';
 import 'tv/update/update_source_store.dart';
 import 'tv/update/updater.dart';
@@ -133,8 +134,11 @@ class TvSaverApp extends StatelessWidget {
 Future<MediaCache?> _openCache() async {
   try {
     final base = await getApplicationSupportDirectory();
-    final cache = MediaCache(dir: Directory('${base.path}/media-cache'));
+    final dir = Directory('${base.path}/media-cache');
+    final cache = MediaCache(dir: dir, freeBytes: () => freeBytesOf(base.path));
     await cache.cleanPartial();
+    // Give back whatever the TV needs for itself before anything else.
+    await cache.trim();
     return cache;
   } catch (e) {
     debugPrint('TV Saver: no media cache: $e');

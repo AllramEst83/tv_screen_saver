@@ -34,6 +34,10 @@ class CacheTooLarge implements Exception {
   String toString() => 'CacheTooLarge($bytes)';
 }
 
+/// Free space the TV keeps for itself and its other apps (about where Android
+/// starts to warn that storage is running low).
+const kStorageReserveBytes = 512 * 1000 * 1000;
+
 /// The Pi answered with a status other than 200.
 class CacheHttpError implements Exception {
   const CacheHttpError(this.status);
@@ -54,6 +58,8 @@ class MediaCache {
   MediaCache({
     required this.dir,
     this.capBytes = 2500 * 1000 * 1000,
+    this.freeBytes,
+    this.reserveBytes = kStorageReserveBytes,
     HttpClient Function()? httpClient,
     DateTime Function()? now,
   }) : _newClient = httpClient ?? HttpClient.new,
@@ -64,6 +70,13 @@ class MediaCache {
   /// The most bytes the cache keeps (the Pi sends its setting with every
   /// `display.prefetch`).
   int capBytes;
+
+  /// Free bytes on the volume the cache lives on; null when it cannot be
+  /// read (then only [capBytes] limits the cache).
+  final Future<int?> Function()? freeBytes;
+
+  /// Free space that is never used for the cache.
+  final int reserveBytes;
   final HttpClient Function() _newClient;
   final DateTime Function() _now;
 
@@ -174,7 +187,12 @@ class MediaCache {
         await res.drain<void>().catchError((Object _) {});
         throw CacheTooLarge(length);
       }
-      await _makeRoom(length > 0 ? length : 0);
+      if (!await _makeRoom(length > 0 ? length : 0)) {
+        // Even with every unused file gone it would eat into the TV's own
+        // free space: the item streams instead.
+        await res.drain<void>().catchError((Object _) {});
+        throw CacheTooLarge(length);
+      }
       final sink = part.openWrite();
       var written = 0;
       try {
@@ -206,11 +224,24 @@ class MediaCache {
     }
   }
 
+  /// What the cache may hold: the Pi's cap, and never more than what leaves
+  /// [reserveBytes] free on the volume (the cache and the free space together
+  /// are what the TV has to give).
+  int _budget(int used, int? free) {
+    if (free == null) return capBytes;
+    final room = used + free - reserveBytes;
+    final b = room < capBytes ? room : capBytes;
+    return b < 0 ? 0 : b;
+  }
+
   /// Deletes least recently used finished files until [incoming] more bytes
-  /// fit under the cap. Pinned files stay.
-  Future<void> _makeRoom(int incoming) async {
+  /// fit in the budget. Pinned files stay. False when they still do not fit.
+  Future<bool> _makeRoom(int incoming) async {
     final files = <(File, int, DateTime)>[];
     var total = 0;
+    if (!await dir.exists()) {
+      return incoming <= _budget(0, await freeBytes?.call());
+    }
     await for (final e in dir.list(followLinks: false)) {
       if (e is! File || e.path.endsWith('.part')) continue;
       try {
@@ -221,10 +252,11 @@ class MediaCache {
         // Gone meanwhile.
       }
     }
-    if (total + incoming <= capBytes) return;
+    final budget = _budget(total, await freeBytes?.call());
+    if (total + incoming <= budget) return true;
     files.sort((a, b) => a.$3.compareTo(b.$3));
     for (final (file, size, _) in files) {
-      if (total + incoming <= capBytes) break;
+      if (total + incoming <= budget) break;
       final name = file.uri.pathSegments.last;
       if (_pins.containsKey(name)) continue;
       try {
@@ -234,6 +266,13 @@ class MediaCache {
         // Keep going.
       }
     }
+    return total + incoming <= budget;
+  }
+
+  /// Brings the cache inside its budget now: the oldest unused files go until
+  /// the TV has its reserve of free space again. Run at start.
+  Future<void> trim() async {
+    await _makeRoom(0);
   }
 
   /// Downloads [requests] one after the other in the background, skipping

@@ -149,4 +149,99 @@ void main() {
     await cache.cleanPartial();
     expect(File('${tmp.path}/c/x.jpg.part').existsSync(), isFalse);
   });
+
+  group('free space on the TV', () {
+    // The TV has `free` bytes left; deleting a cached file gives its bytes
+    // back, which is what the volume does too.
+    late int otherAppsFree; // free space if the cache were empty
+    late MediaCache tight;
+
+    setUp(() {
+      otherAppsFree = 1200; // cache plus free space together
+      tight = MediaCache(
+        dir: Directory('${tmp.path}/c'),
+        capBytes: 100000, // the Pi allows far more than the TV has
+        reserveBytes: 500,
+        now: () => clock,
+        freeBytes: () async {
+          var used = 0;
+          final d = Directory('${tmp.path}/c');
+          if (d.existsSync()) {
+            for (final f in d.listSync().whereType<File>()) {
+              used += f.lengthSync();
+            }
+          }
+          return otherAppsFree - used;
+        },
+      );
+    });
+
+    tearDown(() => tight.dispose());
+
+    test(
+      'the cache never eats into the TV reserve; the oldest goes first',
+      () async {
+        // budget = 1200 - 500 = 700 bytes: one 400 byte file fits, two do not.
+        await tight.fetch(req('a.jpg'));
+        clock = clock.add(const Duration(minutes: 1));
+        await tight.fetch(req('b.jpg'));
+        expect(await tight.lookup('a.jpg'), isNull);
+        expect(await tight.lookup('b.jpg'), isNotNull);
+        expect(await tight.usedBytes(), 400);
+      },
+    );
+
+    test('a file that cannot fit even in an empty cache is streamed', () async {
+      otherAppsFree = 800; // budget 300 bytes
+      await expectLater(
+        tight.fetch(req('a.jpg')),
+        throwsA(isA<CacheTooLarge>()),
+      );
+      expect(await tight.usedBytes(), 0);
+    });
+
+    test(
+      'trim at start gives the space back when the TV is already short',
+      () async {
+        // Filled while the TV had room, now the TV has less.
+        otherAppsFree = 5000;
+        await tight.fetch(req('a.jpg'));
+        clock = clock.add(const Duration(minutes: 1));
+        await tight.fetch(req('b.jpg'));
+        expect(await tight.usedBytes(), 800);
+        otherAppsFree = 1000; // budget 500: only one of the two stays
+        await tight.trim();
+        expect(await tight.lookup('a.jpg'), isNull);
+        expect(await tight.usedBytes(), 400);
+        otherAppsFree = 400; // below the reserve: nothing stays
+        await tight.trim();
+        expect(await tight.usedBytes(), 0);
+      },
+    );
+
+    test('a file in use survives a trim', () async {
+      otherAppsFree = 5000;
+      await tight.fetch(req('a.jpg'));
+      tight.pin('a.jpg');
+      otherAppsFree = 100;
+      await tight.trim();
+      expect(await tight.lookup('a.jpg'), isNotNull);
+      tight.unpin('a.jpg');
+    });
+
+    test(
+      'without a free-space reading only the cap limits the cache',
+      () async {
+        final blind = MediaCache(
+          dir: Directory('${tmp.path}/c'),
+          capBytes: 1000,
+          now: () => clock,
+        );
+        await blind.fetch(req('a.jpg'));
+        await blind.fetch(req('b.jpg'));
+        expect(await blind.usedBytes(), 800);
+        await blind.dispose();
+      },
+    );
+  });
 }

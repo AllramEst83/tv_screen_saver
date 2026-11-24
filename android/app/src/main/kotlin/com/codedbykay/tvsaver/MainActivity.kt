@@ -111,6 +111,22 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        // Free space of the volume a path is on, so the TV cache leaves the
+        // TV its own room.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tvsaver/storage")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "freeBytes") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                try {
+                    val path = call.argument<String>("path")
+                    result.success(if (path == null) null else android.os.StatFs(path).availableBytes)
+                } catch (e: Exception) {
+                    result.success(null)
+                }
+            }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tvsaver/display")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
