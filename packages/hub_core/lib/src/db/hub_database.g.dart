@@ -683,16 +683,1260 @@ class PairingsCompanion extends UpdateCompanion<PairingRow> {
   }
 }
 
+class $LibraryItemsTable extends LibraryItems
+    with TableInfo<$LibraryItemsTable, LibraryItemRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $LibraryItemsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sha256Meta = const VerificationMeta('sha256');
+  @override
+  late final GeneratedColumn<String> sha256 = GeneratedColumn<String>(
+    'sha256',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'),
+  );
+  static const VerificationMeta _bytesMeta = const VerificationMeta('bytes');
+  @override
+  late final GeneratedColumn<int> bytes = GeneratedColumn<int>(
+    'bytes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _widthMeta = const VerificationMeta('width');
+  @override
+  late final GeneratedColumn<int> width = GeneratedColumn<int>(
+    'width',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _heightMeta = const VerificationMeta('height');
+  @override
+  late final GeneratedColumn<int> height = GeneratedColumn<int>(
+    'height',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _durationMsMeta = const VerificationMeta(
+    'durationMs',
+  );
+  @override
+  late final GeneratedColumn<int> durationMs = GeneratedColumn<int>(
+    'duration_ms',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _codecMeta = const VerificationMeta('codec');
+  @override
+  late final GeneratedColumn<String> codec = GeneratedColumn<String>(
+    'codec',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _hdrMeta = const VerificationMeta('hdr');
+  @override
+  late final GeneratedColumn<String> hdr = GeneratedColumn<String>(
+    'hdr',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _fpsMeta = const VerificationMeta('fps');
+  @override
+  late final GeneratedColumn<double> fps = GeneratedColumn<double>(
+    'fps',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _bitrateMeta = const VerificationMeta(
+    'bitrate',
+  );
+  @override
+  late final GeneratedColumn<int> bitrate = GeneratedColumn<int>(
+    'bitrate',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    kind,
+    name,
+    sha256,
+    bytes,
+    width,
+    height,
+    durationMs,
+    codec,
+    hdr,
+    fps,
+    bitrate,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'library_items';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<LibraryItemRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('sha256')) {
+      context.handle(
+        _sha256Meta,
+        sha256.isAcceptableOrUnknown(data['sha256']!, _sha256Meta),
+      );
+    } else if (isInserting) {
+      context.missing(_sha256Meta);
+    }
+    if (data.containsKey('bytes')) {
+      context.handle(
+        _bytesMeta,
+        bytes.isAcceptableOrUnknown(data['bytes']!, _bytesMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_bytesMeta);
+    }
+    if (data.containsKey('width')) {
+      context.handle(
+        _widthMeta,
+        width.isAcceptableOrUnknown(data['width']!, _widthMeta),
+      );
+    }
+    if (data.containsKey('height')) {
+      context.handle(
+        _heightMeta,
+        height.isAcceptableOrUnknown(data['height']!, _heightMeta),
+      );
+    }
+    if (data.containsKey('duration_ms')) {
+      context.handle(
+        _durationMsMeta,
+        durationMs.isAcceptableOrUnknown(data['duration_ms']!, _durationMsMeta),
+      );
+    }
+    if (data.containsKey('codec')) {
+      context.handle(
+        _codecMeta,
+        codec.isAcceptableOrUnknown(data['codec']!, _codecMeta),
+      );
+    }
+    if (data.containsKey('hdr')) {
+      context.handle(
+        _hdrMeta,
+        hdr.isAcceptableOrUnknown(data['hdr']!, _hdrMeta),
+      );
+    }
+    if (data.containsKey('fps')) {
+      context.handle(
+        _fpsMeta,
+        fps.isAcceptableOrUnknown(data['fps']!, _fpsMeta),
+      );
+    }
+    if (data.containsKey('bitrate')) {
+      context.handle(
+        _bitrateMeta,
+        bitrate.isAcceptableOrUnknown(data['bitrate']!, _bitrateMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  LibraryItemRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return LibraryItemRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      sha256: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sha256'],
+      )!,
+      bytes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}bytes'],
+      )!,
+      width: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}width'],
+      ),
+      height: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}height'],
+      ),
+      durationMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}duration_ms'],
+      ),
+      codec: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}codec'],
+      ),
+      hdr: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hdr'],
+      ),
+      fps: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}fps'],
+      ),
+      bitrate: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}bitrate'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $LibraryItemsTable createAlias(String alias) {
+    return $LibraryItemsTable(attachedDatabase, alias);
+  }
+}
+
+class LibraryItemRow extends DataClass implements Insertable<LibraryItemRow> {
+  final String id;
+  final String kind;
+  final String name;
+
+  /// Lowercase hex SHA-256, or `pending:<id>` until the startup import has
+  /// hashed a loose file.
+  final String sha256;
+  final int bytes;
+  final int? width;
+  final int? height;
+  final int? durationMs;
+  final String? codec;
+  final String? hdr;
+  final double? fps;
+  final int? bitrate;
+  final int createdAt;
+  const LibraryItemRow({
+    required this.id,
+    required this.kind,
+    required this.name,
+    required this.sha256,
+    required this.bytes,
+    this.width,
+    this.height,
+    this.durationMs,
+    this.codec,
+    this.hdr,
+    this.fps,
+    this.bitrate,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['kind'] = Variable<String>(kind);
+    map['name'] = Variable<String>(name);
+    map['sha256'] = Variable<String>(sha256);
+    map['bytes'] = Variable<int>(bytes);
+    if (!nullToAbsent || width != null) {
+      map['width'] = Variable<int>(width);
+    }
+    if (!nullToAbsent || height != null) {
+      map['height'] = Variable<int>(height);
+    }
+    if (!nullToAbsent || durationMs != null) {
+      map['duration_ms'] = Variable<int>(durationMs);
+    }
+    if (!nullToAbsent || codec != null) {
+      map['codec'] = Variable<String>(codec);
+    }
+    if (!nullToAbsent || hdr != null) {
+      map['hdr'] = Variable<String>(hdr);
+    }
+    if (!nullToAbsent || fps != null) {
+      map['fps'] = Variable<double>(fps);
+    }
+    if (!nullToAbsent || bitrate != null) {
+      map['bitrate'] = Variable<int>(bitrate);
+    }
+    map['created_at'] = Variable<int>(createdAt);
+    return map;
+  }
+
+  LibraryItemsCompanion toCompanion(bool nullToAbsent) {
+    return LibraryItemsCompanion(
+      id: Value(id),
+      kind: Value(kind),
+      name: Value(name),
+      sha256: Value(sha256),
+      bytes: Value(bytes),
+      width: width == null && nullToAbsent
+          ? const Value.absent()
+          : Value(width),
+      height: height == null && nullToAbsent
+          ? const Value.absent()
+          : Value(height),
+      durationMs: durationMs == null && nullToAbsent
+          ? const Value.absent()
+          : Value(durationMs),
+      codec: codec == null && nullToAbsent
+          ? const Value.absent()
+          : Value(codec),
+      hdr: hdr == null && nullToAbsent ? const Value.absent() : Value(hdr),
+      fps: fps == null && nullToAbsent ? const Value.absent() : Value(fps),
+      bitrate: bitrate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(bitrate),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory LibraryItemRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return LibraryItemRow(
+      id: serializer.fromJson<String>(json['id']),
+      kind: serializer.fromJson<String>(json['kind']),
+      name: serializer.fromJson<String>(json['name']),
+      sha256: serializer.fromJson<String>(json['sha256']),
+      bytes: serializer.fromJson<int>(json['bytes']),
+      width: serializer.fromJson<int?>(json['width']),
+      height: serializer.fromJson<int?>(json['height']),
+      durationMs: serializer.fromJson<int?>(json['durationMs']),
+      codec: serializer.fromJson<String?>(json['codec']),
+      hdr: serializer.fromJson<String?>(json['hdr']),
+      fps: serializer.fromJson<double?>(json['fps']),
+      bitrate: serializer.fromJson<int?>(json['bitrate']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'kind': serializer.toJson<String>(kind),
+      'name': serializer.toJson<String>(name),
+      'sha256': serializer.toJson<String>(sha256),
+      'bytes': serializer.toJson<int>(bytes),
+      'width': serializer.toJson<int?>(width),
+      'height': serializer.toJson<int?>(height),
+      'durationMs': serializer.toJson<int?>(durationMs),
+      'codec': serializer.toJson<String?>(codec),
+      'hdr': serializer.toJson<String?>(hdr),
+      'fps': serializer.toJson<double?>(fps),
+      'bitrate': serializer.toJson<int?>(bitrate),
+      'createdAt': serializer.toJson<int>(createdAt),
+    };
+  }
+
+  LibraryItemRow copyWith({
+    String? id,
+    String? kind,
+    String? name,
+    String? sha256,
+    int? bytes,
+    Value<int?> width = const Value.absent(),
+    Value<int?> height = const Value.absent(),
+    Value<int?> durationMs = const Value.absent(),
+    Value<String?> codec = const Value.absent(),
+    Value<String?> hdr = const Value.absent(),
+    Value<double?> fps = const Value.absent(),
+    Value<int?> bitrate = const Value.absent(),
+    int? createdAt,
+  }) => LibraryItemRow(
+    id: id ?? this.id,
+    kind: kind ?? this.kind,
+    name: name ?? this.name,
+    sha256: sha256 ?? this.sha256,
+    bytes: bytes ?? this.bytes,
+    width: width.present ? width.value : this.width,
+    height: height.present ? height.value : this.height,
+    durationMs: durationMs.present ? durationMs.value : this.durationMs,
+    codec: codec.present ? codec.value : this.codec,
+    hdr: hdr.present ? hdr.value : this.hdr,
+    fps: fps.present ? fps.value : this.fps,
+    bitrate: bitrate.present ? bitrate.value : this.bitrate,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  LibraryItemRow copyWithCompanion(LibraryItemsCompanion data) {
+    return LibraryItemRow(
+      id: data.id.present ? data.id.value : this.id,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      name: data.name.present ? data.name.value : this.name,
+      sha256: data.sha256.present ? data.sha256.value : this.sha256,
+      bytes: data.bytes.present ? data.bytes.value : this.bytes,
+      width: data.width.present ? data.width.value : this.width,
+      height: data.height.present ? data.height.value : this.height,
+      durationMs: data.durationMs.present
+          ? data.durationMs.value
+          : this.durationMs,
+      codec: data.codec.present ? data.codec.value : this.codec,
+      hdr: data.hdr.present ? data.hdr.value : this.hdr,
+      fps: data.fps.present ? data.fps.value : this.fps,
+      bitrate: data.bitrate.present ? data.bitrate.value : this.bitrate,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LibraryItemRow(')
+          ..write('id: $id, ')
+          ..write('kind: $kind, ')
+          ..write('name: $name, ')
+          ..write('sha256: $sha256, ')
+          ..write('bytes: $bytes, ')
+          ..write('width: $width, ')
+          ..write('height: $height, ')
+          ..write('durationMs: $durationMs, ')
+          ..write('codec: $codec, ')
+          ..write('hdr: $hdr, ')
+          ..write('fps: $fps, ')
+          ..write('bitrate: $bitrate, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    kind,
+    name,
+    sha256,
+    bytes,
+    width,
+    height,
+    durationMs,
+    codec,
+    hdr,
+    fps,
+    bitrate,
+    createdAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is LibraryItemRow &&
+          other.id == this.id &&
+          other.kind == this.kind &&
+          other.name == this.name &&
+          other.sha256 == this.sha256 &&
+          other.bytes == this.bytes &&
+          other.width == this.width &&
+          other.height == this.height &&
+          other.durationMs == this.durationMs &&
+          other.codec == this.codec &&
+          other.hdr == this.hdr &&
+          other.fps == this.fps &&
+          other.bitrate == this.bitrate &&
+          other.createdAt == this.createdAt);
+}
+
+class LibraryItemsCompanion extends UpdateCompanion<LibraryItemRow> {
+  final Value<String> id;
+  final Value<String> kind;
+  final Value<String> name;
+  final Value<String> sha256;
+  final Value<int> bytes;
+  final Value<int?> width;
+  final Value<int?> height;
+  final Value<int?> durationMs;
+  final Value<String?> codec;
+  final Value<String?> hdr;
+  final Value<double?> fps;
+  final Value<int?> bitrate;
+  final Value<int> createdAt;
+  final Value<int> rowid;
+  const LibraryItemsCompanion({
+    this.id = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.name = const Value.absent(),
+    this.sha256 = const Value.absent(),
+    this.bytes = const Value.absent(),
+    this.width = const Value.absent(),
+    this.height = const Value.absent(),
+    this.durationMs = const Value.absent(),
+    this.codec = const Value.absent(),
+    this.hdr = const Value.absent(),
+    this.fps = const Value.absent(),
+    this.bitrate = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  LibraryItemsCompanion.insert({
+    required String id,
+    required String kind,
+    required String name,
+    required String sha256,
+    required int bytes,
+    this.width = const Value.absent(),
+    this.height = const Value.absent(),
+    this.durationMs = const Value.absent(),
+    this.codec = const Value.absent(),
+    this.hdr = const Value.absent(),
+    this.fps = const Value.absent(),
+    this.bitrate = const Value.absent(),
+    required int createdAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       kind = Value(kind),
+       name = Value(name),
+       sha256 = Value(sha256),
+       bytes = Value(bytes),
+       createdAt = Value(createdAt);
+  static Insertable<LibraryItemRow> custom({
+    Expression<String>? id,
+    Expression<String>? kind,
+    Expression<String>? name,
+    Expression<String>? sha256,
+    Expression<int>? bytes,
+    Expression<int>? width,
+    Expression<int>? height,
+    Expression<int>? durationMs,
+    Expression<String>? codec,
+    Expression<String>? hdr,
+    Expression<double>? fps,
+    Expression<int>? bitrate,
+    Expression<int>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (kind != null) 'kind': kind,
+      if (name != null) 'name': name,
+      if (sha256 != null) 'sha256': sha256,
+      if (bytes != null) 'bytes': bytes,
+      if (width != null) 'width': width,
+      if (height != null) 'height': height,
+      if (durationMs != null) 'duration_ms': durationMs,
+      if (codec != null) 'codec': codec,
+      if (hdr != null) 'hdr': hdr,
+      if (fps != null) 'fps': fps,
+      if (bitrate != null) 'bitrate': bitrate,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  LibraryItemsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? kind,
+    Value<String>? name,
+    Value<String>? sha256,
+    Value<int>? bytes,
+    Value<int?>? width,
+    Value<int?>? height,
+    Value<int?>? durationMs,
+    Value<String?>? codec,
+    Value<String?>? hdr,
+    Value<double?>? fps,
+    Value<int?>? bitrate,
+    Value<int>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return LibraryItemsCompanion(
+      id: id ?? this.id,
+      kind: kind ?? this.kind,
+      name: name ?? this.name,
+      sha256: sha256 ?? this.sha256,
+      bytes: bytes ?? this.bytes,
+      width: width ?? this.width,
+      height: height ?? this.height,
+      durationMs: durationMs ?? this.durationMs,
+      codec: codec ?? this.codec,
+      hdr: hdr ?? this.hdr,
+      fps: fps ?? this.fps,
+      bitrate: bitrate ?? this.bitrate,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (sha256.present) {
+      map['sha256'] = Variable<String>(sha256.value);
+    }
+    if (bytes.present) {
+      map['bytes'] = Variable<int>(bytes.value);
+    }
+    if (width.present) {
+      map['width'] = Variable<int>(width.value);
+    }
+    if (height.present) {
+      map['height'] = Variable<int>(height.value);
+    }
+    if (durationMs.present) {
+      map['duration_ms'] = Variable<int>(durationMs.value);
+    }
+    if (codec.present) {
+      map['codec'] = Variable<String>(codec.value);
+    }
+    if (hdr.present) {
+      map['hdr'] = Variable<String>(hdr.value);
+    }
+    if (fps.present) {
+      map['fps'] = Variable<double>(fps.value);
+    }
+    if (bitrate.present) {
+      map['bitrate'] = Variable<int>(bitrate.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LibraryItemsCompanion(')
+          ..write('id: $id, ')
+          ..write('kind: $kind, ')
+          ..write('name: $name, ')
+          ..write('sha256: $sha256, ')
+          ..write('bytes: $bytes, ')
+          ..write('width: $width, ')
+          ..write('height: $height, ')
+          ..write('durationMs: $durationMs, ')
+          ..write('codec: $codec, ')
+          ..write('hdr: $hdr, ')
+          ..write('fps: $fps, ')
+          ..write('bitrate: $bitrate, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $UploadsTable extends Uploads with TableInfo<$UploadsTable, UploadRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $UploadsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _bytesMeta = const VerificationMeta('bytes');
+  @override
+  late final GeneratedColumn<int> bytes = GeneratedColumn<int>(
+    'bytes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sha256Meta = const VerificationMeta('sha256');
+  @override
+  late final GeneratedColumn<String> sha256 = GeneratedColumn<String>(
+    'sha256',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'),
+  );
+  static const VerificationMeta _mimeMeta = const VerificationMeta('mime');
+  @override
+  late final GeneratedColumn<String> mime = GeneratedColumn<String>(
+    'mime',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _receivedMeta = const VerificationMeta(
+    'received',
+  );
+  @override
+  late final GeneratedColumn<int> received = GeneratedColumn<int>(
+    'received',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    bytes,
+    sha256,
+    mime,
+    received,
+    deviceId,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'uploads';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<UploadRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('bytes')) {
+      context.handle(
+        _bytesMeta,
+        bytes.isAcceptableOrUnknown(data['bytes']!, _bytesMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_bytesMeta);
+    }
+    if (data.containsKey('sha256')) {
+      context.handle(
+        _sha256Meta,
+        sha256.isAcceptableOrUnknown(data['sha256']!, _sha256Meta),
+      );
+    } else if (isInserting) {
+      context.missing(_sha256Meta);
+    }
+    if (data.containsKey('mime')) {
+      context.handle(
+        _mimeMeta,
+        mime.isAcceptableOrUnknown(data['mime']!, _mimeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_mimeMeta);
+    }
+    if (data.containsKey('received')) {
+      context.handle(
+        _receivedMeta,
+        received.isAcceptableOrUnknown(data['received']!, _receivedMeta),
+      );
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  UploadRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return UploadRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      bytes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}bytes'],
+      )!,
+      sha256: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sha256'],
+      )!,
+      mime: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}mime'],
+      )!,
+      received: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}received'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $UploadsTable createAlias(String alias) {
+    return $UploadsTable(attachedDatabase, alias);
+  }
+}
+
+class UploadRow extends DataClass implements Insertable<UploadRow> {
+  final String id;
+  final String name;
+  final int bytes;
+  final String sha256;
+  final String mime;
+  final int received;
+
+  /// The paired device that started it; empty for the static token.
+  final String deviceId;
+  final int createdAt;
+  const UploadRow({
+    required this.id,
+    required this.name,
+    required this.bytes,
+    required this.sha256,
+    required this.mime,
+    required this.received,
+    required this.deviceId,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['bytes'] = Variable<int>(bytes);
+    map['sha256'] = Variable<String>(sha256);
+    map['mime'] = Variable<String>(mime);
+    map['received'] = Variable<int>(received);
+    map['device_id'] = Variable<String>(deviceId);
+    map['created_at'] = Variable<int>(createdAt);
+    return map;
+  }
+
+  UploadsCompanion toCompanion(bool nullToAbsent) {
+    return UploadsCompanion(
+      id: Value(id),
+      name: Value(name),
+      bytes: Value(bytes),
+      sha256: Value(sha256),
+      mime: Value(mime),
+      received: Value(received),
+      deviceId: Value(deviceId),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory UploadRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return UploadRow(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      bytes: serializer.fromJson<int>(json['bytes']),
+      sha256: serializer.fromJson<String>(json['sha256']),
+      mime: serializer.fromJson<String>(json['mime']),
+      received: serializer.fromJson<int>(json['received']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'bytes': serializer.toJson<int>(bytes),
+      'sha256': serializer.toJson<String>(sha256),
+      'mime': serializer.toJson<String>(mime),
+      'received': serializer.toJson<int>(received),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'createdAt': serializer.toJson<int>(createdAt),
+    };
+  }
+
+  UploadRow copyWith({
+    String? id,
+    String? name,
+    int? bytes,
+    String? sha256,
+    String? mime,
+    int? received,
+    String? deviceId,
+    int? createdAt,
+  }) => UploadRow(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    bytes: bytes ?? this.bytes,
+    sha256: sha256 ?? this.sha256,
+    mime: mime ?? this.mime,
+    received: received ?? this.received,
+    deviceId: deviceId ?? this.deviceId,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  UploadRow copyWithCompanion(UploadsCompanion data) {
+    return UploadRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      bytes: data.bytes.present ? data.bytes.value : this.bytes,
+      sha256: data.sha256.present ? data.sha256.value : this.sha256,
+      mime: data.mime.present ? data.mime.value : this.mime,
+      received: data.received.present ? data.received.value : this.received,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('UploadRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('bytes: $bytes, ')
+          ..write('sha256: $sha256, ')
+          ..write('mime: $mime, ')
+          ..write('received: $received, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, name, bytes, sha256, mime, received, deviceId, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is UploadRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.bytes == this.bytes &&
+          other.sha256 == this.sha256 &&
+          other.mime == this.mime &&
+          other.received == this.received &&
+          other.deviceId == this.deviceId &&
+          other.createdAt == this.createdAt);
+}
+
+class UploadsCompanion extends UpdateCompanion<UploadRow> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<int> bytes;
+  final Value<String> sha256;
+  final Value<String> mime;
+  final Value<int> received;
+  final Value<String> deviceId;
+  final Value<int> createdAt;
+  final Value<int> rowid;
+  const UploadsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.bytes = const Value.absent(),
+    this.sha256 = const Value.absent(),
+    this.mime = const Value.absent(),
+    this.received = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  UploadsCompanion.insert({
+    required String id,
+    required String name,
+    required int bytes,
+    required String sha256,
+    required String mime,
+    this.received = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    required int createdAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       bytes = Value(bytes),
+       sha256 = Value(sha256),
+       mime = Value(mime),
+       createdAt = Value(createdAt);
+  static Insertable<UploadRow> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<int>? bytes,
+    Expression<String>? sha256,
+    Expression<String>? mime,
+    Expression<int>? received,
+    Expression<String>? deviceId,
+    Expression<int>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (bytes != null) 'bytes': bytes,
+      if (sha256 != null) 'sha256': sha256,
+      if (mime != null) 'mime': mime,
+      if (received != null) 'received': received,
+      if (deviceId != null) 'device_id': deviceId,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  UploadsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<int>? bytes,
+    Value<String>? sha256,
+    Value<String>? mime,
+    Value<int>? received,
+    Value<String>? deviceId,
+    Value<int>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return UploadsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      bytes: bytes ?? this.bytes,
+      sha256: sha256 ?? this.sha256,
+      mime: mime ?? this.mime,
+      received: received ?? this.received,
+      deviceId: deviceId ?? this.deviceId,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (bytes.present) {
+      map['bytes'] = Variable<int>(bytes.value);
+    }
+    if (sha256.present) {
+      map['sha256'] = Variable<String>(sha256.value);
+    }
+    if (mime.present) {
+      map['mime'] = Variable<String>(mime.value);
+    }
+    if (received.present) {
+      map['received'] = Variable<int>(received.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('UploadsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('bytes: $bytes, ')
+          ..write('sha256: $sha256, ')
+          ..write('mime: $mime, ')
+          ..write('received: $received, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$HubDatabase extends GeneratedDatabase {
   _$HubDatabase(QueryExecutor e) : super(e);
   $HubDatabaseManager get managers => $HubDatabaseManager(this);
   late final $DevicesTable devices = $DevicesTable(this);
   late final $PairingsTable pairings = $PairingsTable(this);
+  late final $LibraryItemsTable libraryItems = $LibraryItemsTable(this);
+  late final $UploadsTable uploads = $UploadsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [devices, pairings];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [
+    devices,
+    pairings,
+    libraryItems,
+    uploads,
+  ];
 }
 
 typedef $$DevicesTableCreateCompanionBuilder =
@@ -1071,6 +2315,611 @@ typedef $$PairingsTableProcessedTableManager =
       PairingRow,
       PrefetchHooks Function()
     >;
+typedef $$LibraryItemsTableCreateCompanionBuilder =
+    LibraryItemsCompanion Function({
+      required String id,
+      required String kind,
+      required String name,
+      required String sha256,
+      required int bytes,
+      Value<int?> width,
+      Value<int?> height,
+      Value<int?> durationMs,
+      Value<String?> codec,
+      Value<String?> hdr,
+      Value<double?> fps,
+      Value<int?> bitrate,
+      required int createdAt,
+      Value<int> rowid,
+    });
+typedef $$LibraryItemsTableUpdateCompanionBuilder =
+    LibraryItemsCompanion Function({
+      Value<String> id,
+      Value<String> kind,
+      Value<String> name,
+      Value<String> sha256,
+      Value<int> bytes,
+      Value<int?> width,
+      Value<int?> height,
+      Value<int?> durationMs,
+      Value<String?> codec,
+      Value<String?> hdr,
+      Value<double?> fps,
+      Value<int?> bitrate,
+      Value<int> createdAt,
+      Value<int> rowid,
+    });
+
+class $$LibraryItemsTableFilterComposer
+    extends Composer<_$HubDatabase, $LibraryItemsTable> {
+  $$LibraryItemsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sha256 => $composableBuilder(
+    column: $table.sha256,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get bytes => $composableBuilder(
+    column: $table.bytes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get width => $composableBuilder(
+    column: $table.width,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get height => $composableBuilder(
+    column: $table.height,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get durationMs => $composableBuilder(
+    column: $table.durationMs,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get codec => $composableBuilder(
+    column: $table.codec,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hdr => $composableBuilder(
+    column: $table.hdr,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get fps => $composableBuilder(
+    column: $table.fps,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get bitrate => $composableBuilder(
+    column: $table.bitrate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$LibraryItemsTableOrderingComposer
+    extends Composer<_$HubDatabase, $LibraryItemsTable> {
+  $$LibraryItemsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sha256 => $composableBuilder(
+    column: $table.sha256,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get bytes => $composableBuilder(
+    column: $table.bytes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get width => $composableBuilder(
+    column: $table.width,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get height => $composableBuilder(
+    column: $table.height,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get durationMs => $composableBuilder(
+    column: $table.durationMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get codec => $composableBuilder(
+    column: $table.codec,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get hdr => $composableBuilder(
+    column: $table.hdr,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get fps => $composableBuilder(
+    column: $table.fps,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get bitrate => $composableBuilder(
+    column: $table.bitrate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$LibraryItemsTableAnnotationComposer
+    extends Composer<_$HubDatabase, $LibraryItemsTable> {
+  $$LibraryItemsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get sha256 =>
+      $composableBuilder(column: $table.sha256, builder: (column) => column);
+
+  GeneratedColumn<int> get bytes =>
+      $composableBuilder(column: $table.bytes, builder: (column) => column);
+
+  GeneratedColumn<int> get width =>
+      $composableBuilder(column: $table.width, builder: (column) => column);
+
+  GeneratedColumn<int> get height =>
+      $composableBuilder(column: $table.height, builder: (column) => column);
+
+  GeneratedColumn<int> get durationMs => $composableBuilder(
+    column: $table.durationMs,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get codec =>
+      $composableBuilder(column: $table.codec, builder: (column) => column);
+
+  GeneratedColumn<String> get hdr =>
+      $composableBuilder(column: $table.hdr, builder: (column) => column);
+
+  GeneratedColumn<double> get fps =>
+      $composableBuilder(column: $table.fps, builder: (column) => column);
+
+  GeneratedColumn<int> get bitrate =>
+      $composableBuilder(column: $table.bitrate, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$LibraryItemsTableTableManager
+    extends
+        RootTableManager<
+          _$HubDatabase,
+          $LibraryItemsTable,
+          LibraryItemRow,
+          $$LibraryItemsTableFilterComposer,
+          $$LibraryItemsTableOrderingComposer,
+          $$LibraryItemsTableAnnotationComposer,
+          $$LibraryItemsTableCreateCompanionBuilder,
+          $$LibraryItemsTableUpdateCompanionBuilder,
+          (
+            LibraryItemRow,
+            BaseReferences<_$HubDatabase, $LibraryItemsTable, LibraryItemRow>,
+          ),
+          LibraryItemRow,
+          PrefetchHooks Function()
+        > {
+  $$LibraryItemsTableTableManager(_$HubDatabase db, $LibraryItemsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$LibraryItemsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$LibraryItemsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$LibraryItemsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> sha256 = const Value.absent(),
+                Value<int> bytes = const Value.absent(),
+                Value<int?> width = const Value.absent(),
+                Value<int?> height = const Value.absent(),
+                Value<int?> durationMs = const Value.absent(),
+                Value<String?> codec = const Value.absent(),
+                Value<String?> hdr = const Value.absent(),
+                Value<double?> fps = const Value.absent(),
+                Value<int?> bitrate = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => LibraryItemsCompanion(
+                id: id,
+                kind: kind,
+                name: name,
+                sha256: sha256,
+                bytes: bytes,
+                width: width,
+                height: height,
+                durationMs: durationMs,
+                codec: codec,
+                hdr: hdr,
+                fps: fps,
+                bitrate: bitrate,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String kind,
+                required String name,
+                required String sha256,
+                required int bytes,
+                Value<int?> width = const Value.absent(),
+                Value<int?> height = const Value.absent(),
+                Value<int?> durationMs = const Value.absent(),
+                Value<String?> codec = const Value.absent(),
+                Value<String?> hdr = const Value.absent(),
+                Value<double?> fps = const Value.absent(),
+                Value<int?> bitrate = const Value.absent(),
+                required int createdAt,
+                Value<int> rowid = const Value.absent(),
+              }) => LibraryItemsCompanion.insert(
+                id: id,
+                kind: kind,
+                name: name,
+                sha256: sha256,
+                bytes: bytes,
+                width: width,
+                height: height,
+                durationMs: durationMs,
+                codec: codec,
+                hdr: hdr,
+                fps: fps,
+                bitrate: bitrate,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$LibraryItemsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$HubDatabase,
+      $LibraryItemsTable,
+      LibraryItemRow,
+      $$LibraryItemsTableFilterComposer,
+      $$LibraryItemsTableOrderingComposer,
+      $$LibraryItemsTableAnnotationComposer,
+      $$LibraryItemsTableCreateCompanionBuilder,
+      $$LibraryItemsTableUpdateCompanionBuilder,
+      (
+        LibraryItemRow,
+        BaseReferences<_$HubDatabase, $LibraryItemsTable, LibraryItemRow>,
+      ),
+      LibraryItemRow,
+      PrefetchHooks Function()
+    >;
+typedef $$UploadsTableCreateCompanionBuilder =
+    UploadsCompanion Function({
+      required String id,
+      required String name,
+      required int bytes,
+      required String sha256,
+      required String mime,
+      Value<int> received,
+      Value<String> deviceId,
+      required int createdAt,
+      Value<int> rowid,
+    });
+typedef $$UploadsTableUpdateCompanionBuilder =
+    UploadsCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<int> bytes,
+      Value<String> sha256,
+      Value<String> mime,
+      Value<int> received,
+      Value<String> deviceId,
+      Value<int> createdAt,
+      Value<int> rowid,
+    });
+
+class $$UploadsTableFilterComposer
+    extends Composer<_$HubDatabase, $UploadsTable> {
+  $$UploadsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get bytes => $composableBuilder(
+    column: $table.bytes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sha256 => $composableBuilder(
+    column: $table.sha256,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get mime => $composableBuilder(
+    column: $table.mime,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get received => $composableBuilder(
+    column: $table.received,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$UploadsTableOrderingComposer
+    extends Composer<_$HubDatabase, $UploadsTable> {
+  $$UploadsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get bytes => $composableBuilder(
+    column: $table.bytes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sha256 => $composableBuilder(
+    column: $table.sha256,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get mime => $composableBuilder(
+    column: $table.mime,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get received => $composableBuilder(
+    column: $table.received,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$UploadsTableAnnotationComposer
+    extends Composer<_$HubDatabase, $UploadsTable> {
+  $$UploadsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<int> get bytes =>
+      $composableBuilder(column: $table.bytes, builder: (column) => column);
+
+  GeneratedColumn<String> get sha256 =>
+      $composableBuilder(column: $table.sha256, builder: (column) => column);
+
+  GeneratedColumn<String> get mime =>
+      $composableBuilder(column: $table.mime, builder: (column) => column);
+
+  GeneratedColumn<int> get received =>
+      $composableBuilder(column: $table.received, builder: (column) => column);
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$UploadsTableTableManager
+    extends
+        RootTableManager<
+          _$HubDatabase,
+          $UploadsTable,
+          UploadRow,
+          $$UploadsTableFilterComposer,
+          $$UploadsTableOrderingComposer,
+          $$UploadsTableAnnotationComposer,
+          $$UploadsTableCreateCompanionBuilder,
+          $$UploadsTableUpdateCompanionBuilder,
+          (UploadRow, BaseReferences<_$HubDatabase, $UploadsTable, UploadRow>),
+          UploadRow,
+          PrefetchHooks Function()
+        > {
+  $$UploadsTableTableManager(_$HubDatabase db, $UploadsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$UploadsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$UploadsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$UploadsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<int> bytes = const Value.absent(),
+                Value<String> sha256 = const Value.absent(),
+                Value<String> mime = const Value.absent(),
+                Value<int> received = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => UploadsCompanion(
+                id: id,
+                name: name,
+                bytes: bytes,
+                sha256: sha256,
+                mime: mime,
+                received: received,
+                deviceId: deviceId,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                required int bytes,
+                required String sha256,
+                required String mime,
+                Value<int> received = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                required int createdAt,
+                Value<int> rowid = const Value.absent(),
+              }) => UploadsCompanion.insert(
+                id: id,
+                name: name,
+                bytes: bytes,
+                sha256: sha256,
+                mime: mime,
+                received: received,
+                deviceId: deviceId,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$UploadsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$HubDatabase,
+      $UploadsTable,
+      UploadRow,
+      $$UploadsTableFilterComposer,
+      $$UploadsTableOrderingComposer,
+      $$UploadsTableAnnotationComposer,
+      $$UploadsTableCreateCompanionBuilder,
+      $$UploadsTableUpdateCompanionBuilder,
+      (UploadRow, BaseReferences<_$HubDatabase, $UploadsTable, UploadRow>),
+      UploadRow,
+      PrefetchHooks Function()
+    >;
 
 class $HubDatabaseManager {
   final _$HubDatabase _db;
@@ -1079,4 +2928,8 @@ class $HubDatabaseManager {
       $$DevicesTableTableManager(_db, _db.devices);
   $$PairingsTableTableManager get pairings =>
       $$PairingsTableTableManager(_db, _db.pairings);
+  $$LibraryItemsTableTableManager get libraryItems =>
+      $$LibraryItemsTableTableManager(_db, _db.libraryItems);
+  $$UploadsTableTableManager get uploads =>
+      $$UploadsTableTableManager(_db, _db.uploads);
 }

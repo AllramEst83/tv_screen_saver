@@ -8,7 +8,10 @@ import 'mime.dart';
 import 'range.dart';
 import 'server/devices_module.dart';
 import 'server/display_module.dart';
+import 'server/hub_module.dart';
 import 'server/hub_server.dart';
+import 'server/library_module.dart';
+import 'server/library_store.dart';
 import 'server/player_module.dart';
 import 'server/playlist_source.dart';
 import 'tv_store.dart';
@@ -21,20 +24,42 @@ final _idPattern = RegExp(r'^[A-Za-z0-9._-]+$');
 /// Range) as a handler mounted on [HubServer] via `registerHttpHandler`.
 class PiServer {
   PiServer(
-    this.config,
-    this.token, {
+    ServerConfig config,
+    String token, {
     HubDatabase? db,
     PlaylistSource? playlists,
-  }) : _ownsDb = db == null,
-       db = db ?? HubDatabase.inMemory(),
-       playlists = playlists ?? MediaDirPlaylistSource(config.mediaDir);
+    LibraryStore? library,
+  }) : this._(
+         config,
+         token,
+         db ?? HubDatabase.inMemory(),
+         db == null,
+         playlists,
+         library,
+       );
+
+  PiServer._(
+    this.config,
+    this.token,
+    this.db,
+    this._ownsDb,
+    PlaylistSource? playlists,
+    LibraryStore? library,
+  ) : library = library ?? LibraryStore(config: config, db: db),
+      _playlists = playlists;
 
   final ServerConfig config;
   final String token;
   final HubDatabase db;
 
-  /// Until story 4-4 this is the `all` playlist: the media directory.
-  final PlaylistSource playlists;
+  /// Items, uploads and the files behind them.
+  final LibraryStore library;
+
+  final PlaylistSource? _playlists;
+
+  /// Until story 4-4 this is the `all` playlist: the library's videos.
+  late final PlaylistSource playlists =
+      _playlists ?? LibraryPlaylistSource(library);
   final bool _ownsDb;
   HubServer? _hub;
   HubServer get hub => _hub!;
@@ -62,16 +87,19 @@ class PiServer {
         onForgetAllPhones: hub.forgetAllPhones,
       ),
     );
+    hub.registerModule(LibraryModule(library));
     final displayModule = DisplayModule(db: db);
     hub.registerModule(displayModule);
     hub.registerModule(
       PlayerModule(db: db, display: displayModule, playlists: playlists),
     );
     _hub = hub;
+    await library.start();
     await hub.start();
   }
 
   Future<void> stop() async {
+    await library.stop();
     await _hub?.stop();
     if (_ownsDb) await db.close();
   }
@@ -150,25 +178,207 @@ class PiServer {
     }
 
     // Static token (dev, scripts) or any paired device token (TV streaming).
-    if (!_authorized(req) && await hub.authenticateHttp(req) == null) {
-      req.response.headers.set(HttpHeaders.wwwAuthenticateHeader, 'Bearer');
-      return _plain(req, 401);
+    // The static token counts as owner.
+    DeviceInfo? device;
+    if (!_authorized(req)) {
+      device = await hub.authenticateHttp(req);
+      if (device == null) {
+        req.response.headers.set(HttpHeaders.wwwAuthenticateHeader, 'Bearer');
+        return _plain(req, 401);
+      }
     }
 
     if (segs.length >= 2 && segs[0] == 'media') {
+      if (segs[1] == 'uploads') return _handleUploads(req, segs, device);
       final id = segs[1];
       if (!_idPattern.hasMatch(id) || id == '.' || id == '..') {
         return _plain(req, 400);
       }
-      if (segs.length != 3 || segs[2] != 'full') return _plain(req, 404);
+      if (segs.length == 2 && method == 'DELETE') {
+        return _deleteItem(req, id, device);
+      }
+      if (segs.length != 3) return _plain(req, 404);
+      final variant = segs[2];
+      if (variant != 'full' && !kVariants.contains(variant)) {
+        return _plain(req, 404);
+      }
       if (method != 'GET' && method != 'HEAD') return _plain(req, 405);
-      return _serveFile(req, id);
+      if (variant == 'full') {
+        return _serveFile(req, '${config.mediaDir}/$id', contentTypeFor(id));
+      }
+      final path = library.variantPath(id, variant);
+      return _serveFile(req, path, await _sniffImageType(path));
     }
     return _plain(req, 404);
   }
 
-  Future<void> _serveFile(HttpRequest req, String id) async {
-    final filePath = '${config.mediaDir}/$id';
+  Future<void> _json(
+    HttpRequest req,
+    int status,
+    Map<String, Object?> body, {
+    Map<String, String> headers = const {},
+  }) async {
+    final bytes = utf8.encode(jsonEncode(body));
+    req.response.statusCode = status;
+    headers.forEach(req.response.headers.set);
+    req.response.headers.contentType = ContentType.json;
+    req.response.contentLength = bytes.length;
+    req.response.add(bytes);
+    await req.response.close();
+  }
+
+  Future<void> _refuse(HttpRequest req, UploadRefused r) {
+    // A chunk may still be on the wire: do not reuse this connection.
+    req.response.persistentConnection = false;
+    if (r.body.isEmpty) {
+      r.headers.forEach(req.response.headers.set);
+      return _plain(req, r.status);
+    }
+    return _json(req, r.status, r.body, headers: r.headers);
+  }
+
+  Future<void> _deleteItem(
+    HttpRequest req,
+    String id,
+    DeviceInfo? device,
+  ) async {
+    if (device != null && !device.isOwnerEquivalent) return _plain(req, 403);
+    if (!await library.deleteItem(id)) return _plain(req, 404);
+    return _plain(req, 200);
+  }
+
+  static final _contentRange = RegExp(r'^bytes (\d+)-(\d+)/(\d+)$');
+
+  Future<void> _handleUploads(
+    HttpRequest req,
+    List<String> segs,
+    DeviceInfo? device,
+  ) async {
+    // A display never uploads.
+    if (device != null && device.isDisplay) return _plain(req, 403);
+    final method = req.method;
+    if (segs.length == 2) {
+      if (method != 'POST') return _plain(req, 405);
+      return _startUpload(req, device);
+    }
+    if (segs.length != 3) return _plain(req, 404);
+    final uploadId = segs[2];
+    if (!_idPattern.hasMatch(uploadId)) return _plain(req, 400);
+    if (method == 'HEAD') {
+      final offset = await library.uploadOffset(uploadId);
+      if (offset == null) return _plain(req, 404);
+      req.response.headers.set('Upload-Offset', '$offset');
+      return _plain(req, 200);
+    }
+    if (method != 'PUT') return _plain(req, 405);
+    final m = _contentRange.firstMatch(
+      req.headers.value(HttpHeaders.contentRangeHeader) ?? '',
+    );
+    final start = int.tryParse(m?.group(1) ?? '');
+    final end = int.tryParse(m?.group(2) ?? '');
+    final total = int.tryParse(m?.group(3) ?? '');
+    if (start == null || end == null || total == null || end < start) {
+      req.response.persistentConnection = false;
+      return _plain(req, 400);
+    }
+    if (end - start + 1 > kMaxChunkBytes) {
+      req.response.persistentConnection = false;
+      return _plain(req, 413);
+    }
+    final declared = req.contentLength;
+    if (declared >= 0 && declared != end - start + 1) {
+      req.response.persistentConnection = false;
+      return _plain(req, 400);
+    }
+    try {
+      final result = await library.putChunk(
+        uploadId,
+        start: start,
+        end: end,
+        total: total,
+        body: req,
+      );
+      final item = result.item;
+      if (item == null) {
+        return await _json(
+          req,
+          200,
+          {'received': result.received},
+          headers: {'Upload-Offset': '${result.received}'},
+        );
+      }
+      return await _json(req, 201, {
+        'id': item.id,
+        'name': item.name,
+        'kind': item.kind,
+        'bytes': item.bytes,
+        'sha256': item.sha256,
+      });
+    } on UploadRefused catch (r) {
+      return await _refuse(req, r);
+    }
+  }
+
+  Future<void> _startUpload(HttpRequest req, DeviceInfo? device) async {
+    final Object? body;
+    try {
+      final bytes = await req.fold<List<int>>(<int>[], (a, b) {
+        if (a.length + b.length > 64 * 1024) throw const FormatException();
+        return a..addAll(b);
+      });
+      body = jsonDecode(utf8.decode(bytes));
+    } on FormatException {
+      return _plain(req, 400);
+    }
+    if (body is! Map) return _plain(req, 400);
+    final name = body['name'];
+    final bytes = body['bytes'];
+    final sha = body['sha256'];
+    final mime = body['mime'];
+    if (name is! String ||
+        name.trim().isEmpty ||
+        name.length > 255 ||
+        bytes is! int ||
+        bytes <= 0 ||
+        !isValidSha256(sha) ||
+        mime is! String) {
+      return _plain(req, 400);
+    }
+    try {
+      final r = await library.startUpload(
+        name: name.trim(),
+        bytes: bytes,
+        sha256: sha as String,
+        mime: mime,
+        deviceId: device?.id ?? '',
+      );
+      return await _json(req, 200, {'uploadId': r.uploadId, 'received': r.received});
+    } on UploadRefused catch (r) {
+      return await _refuse(req, r);
+    }
+  }
+
+  /// `image/jpeg`, `image/png` or `image/webp` from the first bytes of a
+  /// variant file; JPEG when unknown.
+  Future<String> _sniffImageType(String path) async {
+    try {
+      final f = await File(path).open();
+      try {
+        final h = await f.read(12);
+        if (h.length >= 8 && h[0] == 0x89 && h[1] == 0x50) return 'image/png';
+        if (h.length >= 12 && h[0] == 0x52 && h[8] == 0x57) return 'image/webp';
+      } finally {
+        await f.close();
+      }
+    } catch (_) {}
+    return 'image/jpeg';
+  }
+
+  Future<void> _serveFile(
+    HttpRequest req,
+    String filePath,
+    String contentType,
+  ) async {
     final file = File(filePath);
     final int size;
     try {
@@ -191,7 +401,7 @@ class PiServer {
     final res = req.response;
     res.headers
       ..set(HttpHeaders.acceptRangesHeader, 'bytes')
-      ..set(HttpHeaders.contentTypeHeader, contentTypeFor(id));
+      ..set(HttpHeaders.contentTypeHeader, contentType);
 
     final range = parseRange(req.headers.value(HttpHeaders.rangeHeader), size);
     var start = 0;

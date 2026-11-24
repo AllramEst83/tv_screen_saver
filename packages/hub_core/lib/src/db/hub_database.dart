@@ -62,7 +62,49 @@ class Pairings extends Table {
   Set<Column> get primaryKey => {tokenHash};
 }
 
-@DriftDatabase(tables: [Devices, Pairings])
+/// One stored photo or video. `id` is the file name in the media directory.
+@DataClassName('LibraryItemRow')
+class LibraryItems extends Table {
+  TextColumn get id => text()();
+  TextColumn get kind => text()(); // 'image' | 'video'
+  TextColumn get name => text()();
+
+  /// Lowercase hex SHA-256, or `pending:<id>` until the startup import has
+  /// hashed a loose file.
+  TextColumn get sha256 => text().unique()();
+  IntColumn get bytes => integer()();
+  IntColumn get width => integer().nullable()();
+  IntColumn get height => integer().nullable()();
+  IntColumn get durationMs => integer().nullable()();
+  TextColumn get codec => text().nullable()();
+  TextColumn get hdr => text().nullable()();
+  RealColumn get fps => real().nullable()();
+  IntColumn get bitrate => integer().nullable()();
+  IntColumn get createdAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// An unfinished resumable upload.
+@DataClassName('UploadRow')
+class Uploads extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  IntColumn get bytes => integer()();
+  TextColumn get sha256 => text().unique()();
+  TextColumn get mime => text()();
+  IntColumn get received => integer().withDefault(const Constant(0))();
+
+  /// The paired device that started it; empty for the static token.
+  TextColumn get deviceId => text().withDefault(const Constant(''))();
+  IntColumn get createdAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@DriftDatabase(tables: [Devices, Pairings, LibraryItems, Uploads])
 class HubDatabase extends _$HubDatabase {
   HubDatabase(super.e);
 
@@ -84,11 +126,17 @@ class HubDatabase extends _$HubDatabase {
   factory HubDatabase.inMemory() => HubDatabase(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) => m.createAll(),
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.createTable(libraryItems);
+        await m.createTable(uploads);
+      }
+    },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
     },
@@ -201,4 +249,69 @@ class HubDatabase extends _$HubDatabase {
     await (delete(pairings)..where((t) => t.deviceId.isIn(ids))).go();
     await (delete(devices)..where((t) => t.id.isIn(ids))).go();
   });
+
+  // ---- Library ----
+
+  Future<List<LibraryItemRow>> allLibraryItems() => (select(
+    libraryItems,
+  )..orderBy([(t) => OrderingTerm.asc(t.createdAt)])).get();
+
+  Future<LibraryItemRow?> libraryItem(String id) =>
+      (select(libraryItems)..where((t) => t.id.equals(id))).getSingleOrNull();
+
+  Future<LibraryItemRow?> libraryItemBySha(String sha) => (select(
+    libraryItems,
+  )..where((t) => t.sha256.equals(sha))).getSingleOrNull();
+
+  Future<void> insertLibraryItem(LibraryItemsCompanion item) =>
+      into(libraryItems).insert(item);
+
+  Future<int> deleteLibraryItem(String id) =>
+      (delete(libraryItems)..where((t) => t.id.equals(id))).go();
+
+  Future<int> renameLibraryItem(String id, String name) =>
+      (update(libraryItems)..where((t) => t.id.equals(id))).write(
+        LibraryItemsCompanion(name: Value(name)),
+      );
+
+  Future<int> setLibraryItemSha(String id, String sha) =>
+      (update(libraryItems)..where((t) => t.id.equals(id))).write(
+        LibraryItemsCompanion(sha256: Value(sha)),
+      );
+
+  /// Rows whose hash the startup import has not computed yet.
+  Future<List<LibraryItemRow>> pendingLibraryItems() =>
+      (select(libraryItems)..where((t) => t.sha256.like('pending:%'))).get();
+
+  Future<int> libraryBytes() async {
+    final sum = libraryItems.bytes.sum();
+    final row = await (selectOnly(libraryItems)..addColumns([sum])).getSingle();
+    return row.read(sum) ?? 0;
+  }
+
+  // ---- Uploads ----
+
+  Future<List<UploadRow>> allUploads() => select(uploads).get();
+
+  Future<UploadRow?> uploadById(String id) =>
+      (select(uploads)..where((t) => t.id.equals(id))).getSingleOrNull();
+
+  Future<UploadRow?> uploadBySha(String sha) =>
+      (select(uploads)..where((t) => t.sha256.equals(sha))).getSingleOrNull();
+
+  Future<void> insertUpload(UploadsCompanion row) => into(uploads).insert(row);
+
+  Future<int> setUploadReceived(String id, int received) =>
+      (update(uploads)..where((t) => t.id.equals(id))).write(
+        UploadsCompanion(received: Value(received)),
+      );
+
+  Future<int> deleteUpload(String id) =>
+      (delete(uploads)..where((t) => t.id.equals(id))).go();
+
+  Future<int> uploadsBytes() async {
+    final sum = uploads.bytes.sum();
+    final row = await (selectOnly(uploads)..addColumns([sum])).getSingle();
+    return row.read(sum) ?? 0;
+  }
 }

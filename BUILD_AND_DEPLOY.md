@@ -179,7 +179,17 @@ A pure-Dart HTTP server (`packages/hub_core`, entry `bin/pi_server.dart`) on por
 
 Since story 3-1 the same listener is a `HubServer` (WebSocket `/ws` transport), and the media routes are mounted into it. Story 3-2 adds the `DevicesModule`: pairing, roles and recovery (see "Pairing, roles and recovery" below). The hub id and settings are in memory (`MemoryTvStore`) until later stories. Devices and pairings live in SQLite (`TVSAVER_DB_FILE`, default `~/tvsaver/hub.db`) through drift, using the system SQLite runtime library (`libsqlite3.so.0`, from `libsqlite3-0`; the unversioned `libsqlite3.so` is not needed). If the port is busy the server exits with code 1. After changing the drift tables, regenerate the database code: `(cd packages/hub_core && dart run build_runner build --delete-conflicting-outputs)`. Check the build with `dart compile exe bin/pi_server.dart -o build/pi_server_check`.
 
-The static bearer token stays for scripts and the admin CLI; the media routes also accept the token of any paired device (so the TV streams with its own token): the first run creates `~/.config/tvsaver/token` (random 32-byte hex, mode `0600`; override with `TVSAVER_TOKEN_FILE`). Other overrides: `TVSAVER_MEDIA_DIR`, `TVSAVER_PORT`, `TVSAVER_ID`.
+The static bearer token stays for scripts and the admin CLI; the media routes also accept the token of any paired device (so the TV streams with its own token): the first run creates `~/.config/tvsaver/token` (random 32-byte hex, mode `0600`; override with `TVSAVER_TOKEN_FILE`). Other overrides: `TVSAVER_MEDIA_DIR`, `TVSAVER_PORT`, `TVSAVER_ID`, `TVSAVER_STORAGE_CAP_BYTES` (default 90 GB).
+
+**Library and uploads (story 4-1).** The database is schema version 2 (tables `LibraryItems` and `Uploads`); a version 1 file is upgraded in place and keeps devices and pairings. At every start the server gives each loose servable file in the media directory a library item (id = file name; its sha256 is computed in the background; `*.bin`, dot files and other kinds are skipped). New files from uploads are stored as `<first 16 hex of sha256>.<ext>`; unfinished uploads sit in `<media>/.uploads/` and are deleted after 24 h; variants (story 4-2) go in `<media>/.variants/<id>.<variant>`. Routes (all need the bearer token; a display token cannot upload): `POST /media/uploads {name, bytes, sha256, mime}` gives `{uploadId, received}` (`409 {id}` duplicate, `413` above 80 MB image / 50 GB video, `415` other types, `507 {code:"full", usedBytes, capBytes}`), `PUT /media/uploads/<uploadId>` with `Content-Range: bytes a-b/total` (at most 64 MB per chunk, must start at the received offset or `416`), `HEAD` returns `Upload-Offset`. The last chunk is hashed: `422` on a mismatch, `201 {id, name, kind, bytes, sha256}` on success. `DELETE /media/<id>` is owner only. `GET /media/<id>/thumb|poster|1920` serve a variant file once it exists, else `404`. The `all` playlist is now the library's video items; a file copied into the media directory by hand shows up after the next server restart.
+
+Dev uploader (resumes after an interruption; exit code 2 means "already in the library"):
+
+```
+cd packages/hub_core
+dart run tool/upload.dart <file> --host gemini-pi.local --token <token> [--chunk-mb 16]
+```
+
 
 ```bash
 # PC (Git Bash). Use the Pi's reachable address in PI_HOST (Floor 1 IP while the PC is on Floor 1).
@@ -327,7 +337,7 @@ adb -s <tv-ip>:5555 install -r build/app/outputs/flutter-apk/app-tv-release.apk
 flutter build apk --release --flavor phone -t lib/main_phone.dart   # install on the phone as in section 12
 ```
 
-What plays is the video files (`mp4 m4v mov mkv webm ts`) in the Pi's media directory (`~/tvsaver/media`, the `all` playlist, sorted by name ignoring case). The clips of section 11 are enough.
+What plays is the video files (`mp4 m4v mov mkv webm ts`) in the Pi's media directory (`~/tvsaver/media`, the `all` playlist, sorted by name ignoring case; since story 4-1 these are the library's video items, and loose files are imported when the server starts). The clips of section 11 are enough.
 
 ### First run
 

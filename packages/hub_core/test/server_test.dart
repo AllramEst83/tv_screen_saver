@@ -501,6 +501,8 @@ void main() {
     () async {
       // `tmp` holds clip, pic.png and friends; add the video the playlist uses.
       File('${tmp.path}/movie.mp4').writeAsBytesSync([1, 2, 3]);
+      // The `all` playlist is the library now; files are imported at startup.
+      await server.library.importLooseFiles();
       final tv = await TestPhone.connect(server.port);
       final phone = await TestPhone.connect(server.port);
       addTearDown(() async {

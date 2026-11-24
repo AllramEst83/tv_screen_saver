@@ -1,6 +1,9 @@
 import 'dart:io';
 import 'dart:math';
 
+/// 90 GB: leaves room on the Pi's 128 GB card.
+const kDefaultStorageCapBytes = 90 * 1000 * 1000 * 1000;
+
 /// Server configuration. Paths default to the Pi layout under `$HOME`.
 class ServerConfig {
   ServerConfig({
@@ -9,6 +12,7 @@ class ServerConfig {
     this.dbFile,
     this.port = 8772,
     this.serverId = 'tvsaver',
+    this.storageCapBytes = kDefaultStorageCapBytes,
   });
 
   final String mediaDir;
@@ -19,6 +23,9 @@ class ServerConfig {
   final int port;
   final String serverId;
 
+  /// Most bytes the library (plus unfinished uploads) may take.
+  final int storageCapBytes;
+
   factory ServerConfig.fromEnvironment([Map<String, String>? env]) {
     final e = env ?? Platform.environment;
     final home = e['HOME'] ?? e['USERPROFILE'] ?? '.';
@@ -28,6 +35,9 @@ class ServerConfig {
       dbFile: _nonEmpty(e['TVSAVER_DB_FILE']) ?? '$home/tvsaver/hub.db',
       port: int.tryParse(e['TVSAVER_PORT'] ?? '') ?? 8772,
       serverId: e['TVSAVER_ID'] ?? Platform.localHostname,
+      storageCapBytes:
+          int.tryParse(e['TVSAVER_STORAGE_CAP_BYTES'] ?? '') ??
+          kDefaultStorageCapBytes,
     );
   }
 }

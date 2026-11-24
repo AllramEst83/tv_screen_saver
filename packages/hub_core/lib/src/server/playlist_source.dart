@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'library_store.dart';
+
 /// The one playlist that exists until the playlist module (story 4-4) takes
 /// over: every file in the media directory, sorted by name.
 const kAllPlaylistId = 'all';
@@ -67,6 +69,28 @@ class MediaDirPlaylistSource implements PlaylistSource {
       return c != 0 ? c : a.compareTo(b);
     });
     return _last = names;
+  }
+}
+
+/// The `all` playlist from the library: its video items sorted by name
+/// (ignoring case). If the database cannot be read the last good list is
+/// used.
+class LibraryPlaylistSource implements PlaylistSource {
+  LibraryPlaylistSource(this.store);
+
+  final LibraryStore store;
+  List<String>? _last;
+
+  @override
+  Future<List<String>?> itemIds(String playlistId) async {
+    if (playlistId != kAllPlaylistId) return null;
+    try {
+      return _last = await store.videoIds();
+    } catch (_) {
+      final last = _last;
+      if (last != null) return List.of(last);
+      rethrow;
+    }
   }
 }
 
