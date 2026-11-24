@@ -1,11 +1,26 @@
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:sqlite3/open.dart';
 
 part 'hub_database.g.dart';
+
+/// Raspberry Pi OS ships only `libsqlite3.so.0` (the runtime package); the
+/// unversioned `libsqlite3.so` comes with the `-dev` package. Load either.
+void _configureSqliteLibrary() {
+  open.overrideFor(OperatingSystem.linux, () {
+    for (final name in const ['libsqlite3.so', 'libsqlite3.so.0']) {
+      try {
+        return DynamicLibrary.open(name);
+      } catch (_) {}
+    }
+    return DynamicLibrary.open('libsqlite3.so.0'); // throws a clear error
+  });
+}
 
 /// Computes a lowercase hex SHA-256 hash of a raw pairing token.
 String hashToken(String rawToken) =>
@@ -53,6 +68,7 @@ class HubDatabase extends _$HubDatabase {
 
   /// File-backed database at [path]; creates parent directories.
   factory HubDatabase.open(String path) {
+    _configureSqliteLibrary();
     final file = File(path);
     file.parent.createSync(recursive: true);
     final existed = file.existsSync();

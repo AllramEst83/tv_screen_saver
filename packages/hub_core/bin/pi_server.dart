@@ -25,7 +25,7 @@ Future<void> main(List<String> args) async {
     stderr.writeln(
       'tvsaver: cannot open database $dbFile: $e\n'
       'Check the path is writable and libsqlite3 is installed '
-      '(sudo apt install libsqlite3-0).',
+      '(sudo apt install libsqlite3-0; it must provide libsqlite3.so.0).',
     );
     exit(1);
   }
