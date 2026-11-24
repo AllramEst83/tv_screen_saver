@@ -82,6 +82,21 @@ class LibraryItems extends Table {
   IntColumn get bitrate => integer().nullable()();
   IntColumn get createdAt => integer()();
 
+  // Schema 3: what the media worker found out.
+  TextColumn get audioCodec => text().nullable()();
+  TextColumn get profile => text().nullable()();
+
+  /// `new` (not checked yet), `ready`, `unsupported` or `error`.
+  TextColumn get state => text().withDefault(const Constant('new'))();
+  TextColumn get stateReason => text().nullable()();
+
+  /// The video is above the streaming ceiling: the TV plays it once cached.
+  BoolColumn get cacheRequired =>
+      boolean().withDefault(const Constant(false))();
+
+  /// Comma list of the variants that exist (`poster,thumb` / `1920,thumb`).
+  TextColumn get variants => text().withDefault(const Constant(''))();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -126,15 +141,23 @@ class HubDatabase extends _$HubDatabase {
   factory HubDatabase.inMemory() => HubDatabase(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) => m.createAll(),
     onUpgrade: (m, from, to) async {
       if (from < 2) {
+        // Created with the current definition: it has the schema 3 columns.
         await m.createTable(libraryItems);
         await m.createTable(uploads);
+      } else if (from < 3) {
+        await m.addColumn(libraryItems, libraryItems.audioCodec);
+        await m.addColumn(libraryItems, libraryItems.profile);
+        await m.addColumn(libraryItems, libraryItems.state);
+        await m.addColumn(libraryItems, libraryItems.stateReason);
+        await m.addColumn(libraryItems, libraryItems.cacheRequired);
+        await m.addColumn(libraryItems, libraryItems.variants);
       }
     },
     beforeOpen: (details) async {
@@ -273,6 +296,10 @@ class HubDatabase extends _$HubDatabase {
       (update(libraryItems)..where((t) => t.id.equals(id))).write(
         LibraryItemsCompanion(name: Value(name)),
       );
+
+  /// Writes the media worker's findings. Does nothing when the row is gone.
+  Future<int> updateLibraryItemMedia(String id, LibraryItemsCompanion c) =>
+      (update(libraryItems)..where((t) => t.id.equals(id))).write(c);
 
   Future<int> setLibraryItemSha(String id, String sha) =>
       (update(libraryItems)..where((t) => t.id.equals(id))).write(

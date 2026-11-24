@@ -813,6 +813,76 @@ class $LibraryItemsTable extends LibraryItems
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _audioCodecMeta = const VerificationMeta(
+    'audioCodec',
+  );
+  @override
+  late final GeneratedColumn<String> audioCodec = GeneratedColumn<String>(
+    'audio_codec',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _profileMeta = const VerificationMeta(
+    'profile',
+  );
+  @override
+  late final GeneratedColumn<String> profile = GeneratedColumn<String>(
+    'profile',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _stateMeta = const VerificationMeta('state');
+  @override
+  late final GeneratedColumn<String> state = GeneratedColumn<String>(
+    'state',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('new'),
+  );
+  static const VerificationMeta _stateReasonMeta = const VerificationMeta(
+    'stateReason',
+  );
+  @override
+  late final GeneratedColumn<String> stateReason = GeneratedColumn<String>(
+    'state_reason',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _cacheRequiredMeta = const VerificationMeta(
+    'cacheRequired',
+  );
+  @override
+  late final GeneratedColumn<bool> cacheRequired = GeneratedColumn<bool>(
+    'cache_required',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("cache_required" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _variantsMeta = const VerificationMeta(
+    'variants',
+  );
+  @override
+  late final GeneratedColumn<String> variants = GeneratedColumn<String>(
+    'variants',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -828,6 +898,12 @@ class $LibraryItemsTable extends LibraryItems
     fps,
     bitrate,
     createdAt,
+    audioCodec,
+    profile,
+    state,
+    stateReason,
+    cacheRequired,
+    variants,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -928,6 +1004,48 @@ class $LibraryItemsTable extends LibraryItems
     } else if (isInserting) {
       context.missing(_createdAtMeta);
     }
+    if (data.containsKey('audio_codec')) {
+      context.handle(
+        _audioCodecMeta,
+        audioCodec.isAcceptableOrUnknown(data['audio_codec']!, _audioCodecMeta),
+      );
+    }
+    if (data.containsKey('profile')) {
+      context.handle(
+        _profileMeta,
+        profile.isAcceptableOrUnknown(data['profile']!, _profileMeta),
+      );
+    }
+    if (data.containsKey('state')) {
+      context.handle(
+        _stateMeta,
+        state.isAcceptableOrUnknown(data['state']!, _stateMeta),
+      );
+    }
+    if (data.containsKey('state_reason')) {
+      context.handle(
+        _stateReasonMeta,
+        stateReason.isAcceptableOrUnknown(
+          data['state_reason']!,
+          _stateReasonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('cache_required')) {
+      context.handle(
+        _cacheRequiredMeta,
+        cacheRequired.isAcceptableOrUnknown(
+          data['cache_required']!,
+          _cacheRequiredMeta,
+        ),
+      );
+    }
+    if (data.containsKey('variants')) {
+      context.handle(
+        _variantsMeta,
+        variants.isAcceptableOrUnknown(data['variants']!, _variantsMeta),
+      );
+    }
     return context;
   }
 
@@ -989,6 +1107,30 @@ class $LibraryItemsTable extends LibraryItems
         DriftSqlType.int,
         data['${effectivePrefix}created_at'],
       )!,
+      audioCodec: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}audio_codec'],
+      ),
+      profile: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}profile'],
+      ),
+      state: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state'],
+      )!,
+      stateReason: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state_reason'],
+      ),
+      cacheRequired: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}cache_required'],
+      )!,
+      variants: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}variants'],
+      )!,
     );
   }
 
@@ -1015,6 +1157,18 @@ class LibraryItemRow extends DataClass implements Insertable<LibraryItemRow> {
   final double? fps;
   final int? bitrate;
   final int createdAt;
+  final String? audioCodec;
+  final String? profile;
+
+  /// `new` (not checked yet), `ready`, `unsupported` or `error`.
+  final String state;
+  final String? stateReason;
+
+  /// The video is above the streaming ceiling: the TV plays it once cached.
+  final bool cacheRequired;
+
+  /// Comma list of the variants that exist (`poster,thumb` / `1920,thumb`).
+  final String variants;
   const LibraryItemRow({
     required this.id,
     required this.kind,
@@ -1029,6 +1183,12 @@ class LibraryItemRow extends DataClass implements Insertable<LibraryItemRow> {
     this.fps,
     this.bitrate,
     required this.createdAt,
+    this.audioCodec,
+    this.profile,
+    required this.state,
+    this.stateReason,
+    required this.cacheRequired,
+    required this.variants,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1060,6 +1220,18 @@ class LibraryItemRow extends DataClass implements Insertable<LibraryItemRow> {
       map['bitrate'] = Variable<int>(bitrate);
     }
     map['created_at'] = Variable<int>(createdAt);
+    if (!nullToAbsent || audioCodec != null) {
+      map['audio_codec'] = Variable<String>(audioCodec);
+    }
+    if (!nullToAbsent || profile != null) {
+      map['profile'] = Variable<String>(profile);
+    }
+    map['state'] = Variable<String>(state);
+    if (!nullToAbsent || stateReason != null) {
+      map['state_reason'] = Variable<String>(stateReason);
+    }
+    map['cache_required'] = Variable<bool>(cacheRequired);
+    map['variants'] = Variable<String>(variants);
     return map;
   }
 
@@ -1088,6 +1260,18 @@ class LibraryItemRow extends DataClass implements Insertable<LibraryItemRow> {
           ? const Value.absent()
           : Value(bitrate),
       createdAt: Value(createdAt),
+      audioCodec: audioCodec == null && nullToAbsent
+          ? const Value.absent()
+          : Value(audioCodec),
+      profile: profile == null && nullToAbsent
+          ? const Value.absent()
+          : Value(profile),
+      state: Value(state),
+      stateReason: stateReason == null && nullToAbsent
+          ? const Value.absent()
+          : Value(stateReason),
+      cacheRequired: Value(cacheRequired),
+      variants: Value(variants),
     );
   }
 
@@ -1110,6 +1294,12 @@ class LibraryItemRow extends DataClass implements Insertable<LibraryItemRow> {
       fps: serializer.fromJson<double?>(json['fps']),
       bitrate: serializer.fromJson<int?>(json['bitrate']),
       createdAt: serializer.fromJson<int>(json['createdAt']),
+      audioCodec: serializer.fromJson<String?>(json['audioCodec']),
+      profile: serializer.fromJson<String?>(json['profile']),
+      state: serializer.fromJson<String>(json['state']),
+      stateReason: serializer.fromJson<String?>(json['stateReason']),
+      cacheRequired: serializer.fromJson<bool>(json['cacheRequired']),
+      variants: serializer.fromJson<String>(json['variants']),
     );
   }
   @override
@@ -1129,6 +1319,12 @@ class LibraryItemRow extends DataClass implements Insertable<LibraryItemRow> {
       'fps': serializer.toJson<double?>(fps),
       'bitrate': serializer.toJson<int?>(bitrate),
       'createdAt': serializer.toJson<int>(createdAt),
+      'audioCodec': serializer.toJson<String?>(audioCodec),
+      'profile': serializer.toJson<String?>(profile),
+      'state': serializer.toJson<String>(state),
+      'stateReason': serializer.toJson<String?>(stateReason),
+      'cacheRequired': serializer.toJson<bool>(cacheRequired),
+      'variants': serializer.toJson<String>(variants),
     };
   }
 
@@ -1146,6 +1342,12 @@ class LibraryItemRow extends DataClass implements Insertable<LibraryItemRow> {
     Value<double?> fps = const Value.absent(),
     Value<int?> bitrate = const Value.absent(),
     int? createdAt,
+    Value<String?> audioCodec = const Value.absent(),
+    Value<String?> profile = const Value.absent(),
+    String? state,
+    Value<String?> stateReason = const Value.absent(),
+    bool? cacheRequired,
+    String? variants,
   }) => LibraryItemRow(
     id: id ?? this.id,
     kind: kind ?? this.kind,
@@ -1160,6 +1362,12 @@ class LibraryItemRow extends DataClass implements Insertable<LibraryItemRow> {
     fps: fps.present ? fps.value : this.fps,
     bitrate: bitrate.present ? bitrate.value : this.bitrate,
     createdAt: createdAt ?? this.createdAt,
+    audioCodec: audioCodec.present ? audioCodec.value : this.audioCodec,
+    profile: profile.present ? profile.value : this.profile,
+    state: state ?? this.state,
+    stateReason: stateReason.present ? stateReason.value : this.stateReason,
+    cacheRequired: cacheRequired ?? this.cacheRequired,
+    variants: variants ?? this.variants,
   );
   LibraryItemRow copyWithCompanion(LibraryItemsCompanion data) {
     return LibraryItemRow(
@@ -1178,6 +1386,18 @@ class LibraryItemRow extends DataClass implements Insertable<LibraryItemRow> {
       fps: data.fps.present ? data.fps.value : this.fps,
       bitrate: data.bitrate.present ? data.bitrate.value : this.bitrate,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      audioCodec: data.audioCodec.present
+          ? data.audioCodec.value
+          : this.audioCodec,
+      profile: data.profile.present ? data.profile.value : this.profile,
+      state: data.state.present ? data.state.value : this.state,
+      stateReason: data.stateReason.present
+          ? data.stateReason.value
+          : this.stateReason,
+      cacheRequired: data.cacheRequired.present
+          ? data.cacheRequired.value
+          : this.cacheRequired,
+      variants: data.variants.present ? data.variants.value : this.variants,
     );
   }
 
@@ -1196,7 +1416,13 @@ class LibraryItemRow extends DataClass implements Insertable<LibraryItemRow> {
           ..write('hdr: $hdr, ')
           ..write('fps: $fps, ')
           ..write('bitrate: $bitrate, ')
-          ..write('createdAt: $createdAt')
+          ..write('createdAt: $createdAt, ')
+          ..write('audioCodec: $audioCodec, ')
+          ..write('profile: $profile, ')
+          ..write('state: $state, ')
+          ..write('stateReason: $stateReason, ')
+          ..write('cacheRequired: $cacheRequired, ')
+          ..write('variants: $variants')
           ..write(')'))
         .toString();
   }
@@ -1216,6 +1442,12 @@ class LibraryItemRow extends DataClass implements Insertable<LibraryItemRow> {
     fps,
     bitrate,
     createdAt,
+    audioCodec,
+    profile,
+    state,
+    stateReason,
+    cacheRequired,
+    variants,
   );
   @override
   bool operator ==(Object other) =>
@@ -1233,7 +1465,13 @@ class LibraryItemRow extends DataClass implements Insertable<LibraryItemRow> {
           other.hdr == this.hdr &&
           other.fps == this.fps &&
           other.bitrate == this.bitrate &&
-          other.createdAt == this.createdAt);
+          other.createdAt == this.createdAt &&
+          other.audioCodec == this.audioCodec &&
+          other.profile == this.profile &&
+          other.state == this.state &&
+          other.stateReason == this.stateReason &&
+          other.cacheRequired == this.cacheRequired &&
+          other.variants == this.variants);
 }
 
 class LibraryItemsCompanion extends UpdateCompanion<LibraryItemRow> {
@@ -1250,6 +1488,12 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItemRow> {
   final Value<double?> fps;
   final Value<int?> bitrate;
   final Value<int> createdAt;
+  final Value<String?> audioCodec;
+  final Value<String?> profile;
+  final Value<String> state;
+  final Value<String?> stateReason;
+  final Value<bool> cacheRequired;
+  final Value<String> variants;
   final Value<int> rowid;
   const LibraryItemsCompanion({
     this.id = const Value.absent(),
@@ -1265,6 +1509,12 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItemRow> {
     this.fps = const Value.absent(),
     this.bitrate = const Value.absent(),
     this.createdAt = const Value.absent(),
+    this.audioCodec = const Value.absent(),
+    this.profile = const Value.absent(),
+    this.state = const Value.absent(),
+    this.stateReason = const Value.absent(),
+    this.cacheRequired = const Value.absent(),
+    this.variants = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   LibraryItemsCompanion.insert({
@@ -1281,6 +1531,12 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItemRow> {
     this.fps = const Value.absent(),
     this.bitrate = const Value.absent(),
     required int createdAt,
+    this.audioCodec = const Value.absent(),
+    this.profile = const Value.absent(),
+    this.state = const Value.absent(),
+    this.stateReason = const Value.absent(),
+    this.cacheRequired = const Value.absent(),
+    this.variants = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        kind = Value(kind),
@@ -1302,6 +1558,12 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItemRow> {
     Expression<double>? fps,
     Expression<int>? bitrate,
     Expression<int>? createdAt,
+    Expression<String>? audioCodec,
+    Expression<String>? profile,
+    Expression<String>? state,
+    Expression<String>? stateReason,
+    Expression<bool>? cacheRequired,
+    Expression<String>? variants,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1318,6 +1580,12 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItemRow> {
       if (fps != null) 'fps': fps,
       if (bitrate != null) 'bitrate': bitrate,
       if (createdAt != null) 'created_at': createdAt,
+      if (audioCodec != null) 'audio_codec': audioCodec,
+      if (profile != null) 'profile': profile,
+      if (state != null) 'state': state,
+      if (stateReason != null) 'state_reason': stateReason,
+      if (cacheRequired != null) 'cache_required': cacheRequired,
+      if (variants != null) 'variants': variants,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1336,6 +1604,12 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItemRow> {
     Value<double?>? fps,
     Value<int?>? bitrate,
     Value<int>? createdAt,
+    Value<String?>? audioCodec,
+    Value<String?>? profile,
+    Value<String>? state,
+    Value<String?>? stateReason,
+    Value<bool>? cacheRequired,
+    Value<String>? variants,
     Value<int>? rowid,
   }) {
     return LibraryItemsCompanion(
@@ -1352,6 +1626,12 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItemRow> {
       fps: fps ?? this.fps,
       bitrate: bitrate ?? this.bitrate,
       createdAt: createdAt ?? this.createdAt,
+      audioCodec: audioCodec ?? this.audioCodec,
+      profile: profile ?? this.profile,
+      state: state ?? this.state,
+      stateReason: stateReason ?? this.stateReason,
+      cacheRequired: cacheRequired ?? this.cacheRequired,
+      variants: variants ?? this.variants,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1398,6 +1678,24 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItemRow> {
     if (createdAt.present) {
       map['created_at'] = Variable<int>(createdAt.value);
     }
+    if (audioCodec.present) {
+      map['audio_codec'] = Variable<String>(audioCodec.value);
+    }
+    if (profile.present) {
+      map['profile'] = Variable<String>(profile.value);
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(state.value);
+    }
+    if (stateReason.present) {
+      map['state_reason'] = Variable<String>(stateReason.value);
+    }
+    if (cacheRequired.present) {
+      map['cache_required'] = Variable<bool>(cacheRequired.value);
+    }
+    if (variants.present) {
+      map['variants'] = Variable<String>(variants.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1420,6 +1718,12 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItemRow> {
           ..write('fps: $fps, ')
           ..write('bitrate: $bitrate, ')
           ..write('createdAt: $createdAt, ')
+          ..write('audioCodec: $audioCodec, ')
+          ..write('profile: $profile, ')
+          ..write('state: $state, ')
+          ..write('stateReason: $stateReason, ')
+          ..write('cacheRequired: $cacheRequired, ')
+          ..write('variants: $variants, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2330,6 +2634,12 @@ typedef $$LibraryItemsTableCreateCompanionBuilder =
       Value<double?> fps,
       Value<int?> bitrate,
       required int createdAt,
+      Value<String?> audioCodec,
+      Value<String?> profile,
+      Value<String> state,
+      Value<String?> stateReason,
+      Value<bool> cacheRequired,
+      Value<String> variants,
       Value<int> rowid,
     });
 typedef $$LibraryItemsTableUpdateCompanionBuilder =
@@ -2347,6 +2657,12 @@ typedef $$LibraryItemsTableUpdateCompanionBuilder =
       Value<double?> fps,
       Value<int?> bitrate,
       Value<int> createdAt,
+      Value<String?> audioCodec,
+      Value<String?> profile,
+      Value<String> state,
+      Value<String?> stateReason,
+      Value<bool> cacheRequired,
+      Value<String> variants,
       Value<int> rowid,
     });
 
@@ -2421,6 +2737,36 @@ class $$LibraryItemsTableFilterComposer
 
   ColumnFilters<int> get createdAt => $composableBuilder(
     column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get audioCodec => $composableBuilder(
+    column: $table.audioCodec,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get profile => $composableBuilder(
+    column: $table.profile,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get state => $composableBuilder(
+    column: $table.state,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get stateReason => $composableBuilder(
+    column: $table.stateReason,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get cacheRequired => $composableBuilder(
+    column: $table.cacheRequired,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get variants => $composableBuilder(
+    column: $table.variants,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -2498,6 +2844,36 @@ class $$LibraryItemsTableOrderingComposer
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get audioCodec => $composableBuilder(
+    column: $table.audioCodec,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get profile => $composableBuilder(
+    column: $table.profile,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get state => $composableBuilder(
+    column: $table.state,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get stateReason => $composableBuilder(
+    column: $table.stateReason,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get cacheRequired => $composableBuilder(
+    column: $table.cacheRequired,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get variants => $composableBuilder(
+    column: $table.variants,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$LibraryItemsTableAnnotationComposer
@@ -2549,6 +2925,30 @@ class $$LibraryItemsTableAnnotationComposer
 
   GeneratedColumn<int> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get audioCodec => $composableBuilder(
+    column: $table.audioCodec,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get profile =>
+      $composableBuilder(column: $table.profile, builder: (column) => column);
+
+  GeneratedColumn<String> get state =>
+      $composableBuilder(column: $table.state, builder: (column) => column);
+
+  GeneratedColumn<String> get stateReason => $composableBuilder(
+    column: $table.stateReason,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get cacheRequired => $composableBuilder(
+    column: $table.cacheRequired,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get variants =>
+      $composableBuilder(column: $table.variants, builder: (column) => column);
 }
 
 class $$LibraryItemsTableTableManager
@@ -2595,6 +2995,12 @@ class $$LibraryItemsTableTableManager
                 Value<double?> fps = const Value.absent(),
                 Value<int?> bitrate = const Value.absent(),
                 Value<int> createdAt = const Value.absent(),
+                Value<String?> audioCodec = const Value.absent(),
+                Value<String?> profile = const Value.absent(),
+                Value<String> state = const Value.absent(),
+                Value<String?> stateReason = const Value.absent(),
+                Value<bool> cacheRequired = const Value.absent(),
+                Value<String> variants = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => LibraryItemsCompanion(
                 id: id,
@@ -2610,6 +3016,12 @@ class $$LibraryItemsTableTableManager
                 fps: fps,
                 bitrate: bitrate,
                 createdAt: createdAt,
+                audioCodec: audioCodec,
+                profile: profile,
+                state: state,
+                stateReason: stateReason,
+                cacheRequired: cacheRequired,
+                variants: variants,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -2627,6 +3039,12 @@ class $$LibraryItemsTableTableManager
                 Value<double?> fps = const Value.absent(),
                 Value<int?> bitrate = const Value.absent(),
                 required int createdAt,
+                Value<String?> audioCodec = const Value.absent(),
+                Value<String?> profile = const Value.absent(),
+                Value<String> state = const Value.absent(),
+                Value<String?> stateReason = const Value.absent(),
+                Value<bool> cacheRequired = const Value.absent(),
+                Value<String> variants = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => LibraryItemsCompanion.insert(
                 id: id,
@@ -2642,6 +3060,12 @@ class $$LibraryItemsTableTableManager
                 fps: fps,
                 bitrate: bitrate,
                 createdAt: createdAt,
+                audioCodec: audioCodec,
+                profile: profile,
+                state: state,
+                stateReason: stateReason,
+                cacheRequired: cacheRequired,
+                variants: variants,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

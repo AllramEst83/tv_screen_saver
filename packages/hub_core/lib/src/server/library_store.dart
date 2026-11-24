@@ -8,6 +8,9 @@ import 'package:drift/drift.dart' show Value;
 
 import '../config.dart';
 import '../db/hub_database.dart';
+import 'media_probe.dart';
+import 'media_worker.dart';
+import 'tool_runner.dart';
 
 /// Largest image (after phone prep) and video the Pi accepts.
 const kMaxImageBytes = 80 * 1024 * 1024;
@@ -97,6 +100,12 @@ Map<String, Object?> libraryItemJson(LibraryItemRow r) => {
   'fps': r.fps,
   'bitrate': r.bitrate,
   'createdAt': r.createdAt,
+  'audioCodec': r.audioCodec,
+  'profile': r.profile,
+  'state': r.state,
+  'stateReason': r.stateReason,
+  'cacheRequired': r.cacheRequired,
+  'variants': r.variants.isEmpty ? const <String>[] : r.variants.split(','),
 };
 
 /// Something that happened to the library: `added`, `updated` or `removed`.
@@ -175,8 +184,19 @@ class LibraryStore {
     Future<int?> Function(String dir)? freeBytes,
     this.looseFileGrace = const Duration(seconds: 10),
     this.reconcileInterval = const Duration(seconds: 5),
+    ToolRunner? toolRunner,
   }) : _now = now ?? DateTime.now,
-       _freeBytes = freeBytes ?? _dfFreeBytes;
+       _freeBytes = freeBytes ?? _dfFreeBytes {
+    worker = MediaWorker(
+      config: config,
+      db: db,
+      runner: toolRunner ?? ProcessToolRunner(),
+      pathOf: pathOf,
+      variantsDir: _variantsDir,
+      onUpdated: (row) => _emit('library.updated', libraryItemJson(row)),
+      capabilities: () => capabilities?.call(),
+    );
+  }
 
   final ServerConfig config;
   final HubDatabase db;
@@ -193,6 +213,13 @@ class LibraryStore {
   /// Called after an item is removed (delete or file gone), so the player can
   /// move on. Errors are ignored.
   Future<void> Function(String id)? onItemRemoved;
+
+  /// The background media worker (ffprobe, ffmpeg, libvips).
+  late final MediaWorker worker;
+
+  /// What the TV reported in `display.capabilities`, or null when no display
+  /// has reported yet. Set by the server.
+  Map<String, Object?>? Function()? capabilities;
 
   /// How many times a finished upload had to be re-read from disk to verify
   /// it (no running hash: the server restarted). For tests.
@@ -239,11 +266,13 @@ class LibraryStore {
     await Directory(_uploadsDir).create(recursive: true);
     await expireStaleUploads();
     await _recoverUploads();
+    await worker.start();
     await reconcile();
     _hashing = _hashing.then((_) => _hashPending()); // left from last run
     _hourlyTimer?.cancel();
     _hourlyTimer = Timer.periodic(const Duration(hours: 1), (_) {
       expireStaleUploads()
+          .then<void>((_) => worker.refreshTools())
           .then<void>((_) => reconcile())
           .then<void>((_) {}, onError: (Object _) {});
     });
@@ -256,6 +285,7 @@ class LibraryStore {
     _stopped = true;
     _hourlyTimer?.cancel();
     _hourlyTimer = null;
+    await worker.stop();
     await _hashing.catchError((Object _) {});
     await _reconcileChain.catchError((Object _) {});
   }
@@ -276,11 +306,12 @@ class LibraryStore {
     },
   };
 
-  /// Ids of the video items sorted by name (ignoring case).
+  /// Ids of the playable video items (not `unsupported`) sorted by name
+  /// (ignoring case).
   Future<List<String>> videoIds() async {
     final rows = [
       for (final r in await items())
-        if (r.kind == 'video') r,
+        if (r.kind == 'video' && r.state != 'unsupported') r,
     ];
     rows.sort((a, b) {
       final c = a.name.toLowerCase().compareTo(b.name.toLowerCase());
@@ -290,6 +321,16 @@ class LibraryStore {
     });
     return [for (final r in rows) r.id];
   }
+
+  /// Why item [id] cannot be played (it is `unsupported`), else null.
+  Future<String?> unplayableReason(String id) async {
+    final r = await db.libraryItem(id);
+    if (r == null || r.state != 'unsupported') return null;
+    return r.stateReason ?? 'The TV cannot play this video';
+  }
+
+  /// The TV's capabilities changed: check the videos again.
+  Future<void> capabilitiesChanged() => worker.recheck();
 
   Future<LibraryItemRow?> itemBySha(String sha) => db.libraryItemBySha(sha);
 
@@ -308,6 +349,7 @@ class LibraryStore {
     if (!_idPattern.hasMatch(id) || id.startsWith('.')) return false;
     final row = await db.libraryItem(id);
     if (row == null) return false;
+    worker.remove(id);
     await _removeFiles(id);
     await db.deleteLibraryItem(id);
     _removed(id);
@@ -318,6 +360,7 @@ class LibraryStore {
     await _deleteFile(pathOf(id));
     for (final v in kVariants) {
       await _deleteFile(variantPath(id, v));
+      await _deleteFile('${variantPath(id, v)}.tmp.jpg');
     }
   }
 
@@ -570,13 +613,29 @@ class LibraryStore {
       await db.deleteUpload(row.id);
       throw UploadRefused(HttpStatus.conflict, {'id': id, 'code': 'collision'});
     }
+    // One quick ffprobe: refuse a video the TV could neither stream nor cache.
+    ProbeInfo? probe;
+    if (kindForMime(row.mime) == 'video') {
+      probe = await worker.quickProbe(part.path, fileBytes: row.bytes);
+      final heavy = probe == null
+          ? null
+          : worker.tooHeavyReason(probe, row.bytes);
+      if (heavy != null) {
+        await _deleteFile(part.path);
+        await db.deleteUpload(row.id);
+        throw UploadRefused(HttpStatus.unprocessableEntity, {
+          'code': 'too_heavy',
+          'reason': heavy,
+        });
+      }
+    }
     // File first, row second: a crash in between leaves a final file the next
     // reconcile imports and an upload row that `_recoverUpload` closes.
     _finishing.add(id);
     try {
       await part.rename(pathOf(id));
       try {
-        await _insertFinished(row, id);
+        await _insertFinished(row, id, probe);
       } catch (_) {
         try {
           await File(pathOf(id)).rename(part.path);
@@ -588,10 +647,11 @@ class LibraryStore {
     }
     final saved = (await db.libraryItem(id))!;
     _emit('library.added', libraryItemJson(saved));
+    worker.enqueue(id);
     return saved;
   }
 
-  Future<void> _insertFinished(UploadRow row, String id) =>
+  Future<void> _insertFinished(UploadRow row, String id, [ProbeInfo? probe]) =>
       db.transaction(() async {
         await db.insertLibraryItem(
           LibraryItemsCompanion.insert(
@@ -601,6 +661,16 @@ class LibraryStore {
             sha256: row.sha256,
             bytes: row.bytes,
             createdAt: _nowMs,
+            width: Value(probe?.width),
+            height: Value(probe?.height),
+            durationMs: Value(probe?.durationMs),
+            codec: Value(probe?.codec),
+            profile: Value(probe?.profile),
+            hdr: Value(probe?.hdr),
+            fps: Value(probe?.fps),
+            bitrate: Value(probe?.bitrate),
+            audioCodec: Value(probe?.audioCodec),
+            cacheRequired: Value(worker.isAboveCeiling(probe?.bitrate)),
           ),
         );
         await db.deleteUpload(row.id);
@@ -624,6 +694,7 @@ class LibraryStore {
       }
       final saved = (await db.libraryItem(id))!;
       _emit('library.added', libraryItemJson(saved));
+      worker.enqueue(id);
       return saved;
     }
     await db.deleteUpload(row.id);
@@ -729,6 +800,7 @@ class LibraryStore {
           createdAt: _nowMs,
         ),
       );
+      worker.enqueue(name);
       n++;
     }
     if (n > 0) _hashing = _hashing.then((_) => _hashPending());

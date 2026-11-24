@@ -4,6 +4,12 @@ import 'dart:math';
 /// 90 GB: leaves room on the Pi's 128 GB card.
 const kDefaultStorageCapBytes = 90 * 1000 * 1000 * 1000;
 
+/// Videos above this bitrate (Mbit/s) are cached on the TV before they play.
+const kDefaultStreamCeilingMbps = 80;
+
+/// The TV's cache cap: 2.5 GB.
+const kDefaultTvCacheBytes = 2500 * 1000 * 1000;
+
 /// Server configuration. Paths default to the Pi layout under `$HOME`.
 class ServerConfig {
   ServerConfig({
@@ -13,6 +19,8 @@ class ServerConfig {
     this.port = 8772,
     this.serverId = 'tvsaver',
     this.storageCapBytes = kDefaultStorageCapBytes,
+    this.streamCeilingMbps = kDefaultStreamCeilingMbps,
+    this.tvCacheBytes = kDefaultTvCacheBytes,
   });
 
   final String mediaDir;
@@ -26,6 +34,12 @@ class ServerConfig {
   /// Most bytes the library (plus unfinished uploads) may take.
   final int storageCapBytes;
 
+  /// Streaming ceiling in Mbit/s (`TVSAVER_STREAM_CEILING_MBPS`).
+  final int streamCeilingMbps;
+
+  /// The TV's cache cap in bytes (`TVSAVER_TV_CACHE_BYTES`).
+  final int tvCacheBytes;
+
   factory ServerConfig.fromEnvironment([Map<String, String>? env]) {
     final e = env ?? Platform.environment;
     final home = e['HOME'] ?? e['USERPROFILE'] ?? '.';
@@ -38,6 +52,11 @@ class ServerConfig {
       storageCapBytes:
           _positiveInt(e['TVSAVER_STORAGE_CAP_BYTES']) ??
           kDefaultStorageCapBytes,
+      streamCeilingMbps:
+          _positiveInt(e['TVSAVER_STREAM_CEILING_MBPS']) ??
+          kDefaultStreamCeilingMbps,
+      tvCacheBytes:
+          _positiveInt(e['TVSAVER_TV_CACHE_BYTES']) ?? kDefaultTvCacheBytes,
     );
   }
 }

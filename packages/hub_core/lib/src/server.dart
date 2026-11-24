@@ -92,12 +92,17 @@ class PiServer {
       ),
     );
     hub.registerModule(LibraryModule(library));
-    final displayModule = DisplayModule(db: db);
+    final displayModule = DisplayModule(
+      db: db,
+      onCapabilitiesChanged: library.capabilitiesChanged,
+    );
     hub.registerModule(displayModule);
+    library.capabilities = () => displayModule.currentCapabilities;
     final player = PlayerModule(
       db: db,
       display: displayModule,
       playlists: playlists,
+      unplayableReason: library.unplayableReason,
     );
     hub.registerModule(player);
     library.onItemRemoved = player.itemRemoved;
@@ -109,6 +114,7 @@ class PiServer {
   Future<void> stop() async {
     library.onItemRemoved = null;
     await library.stop();
+    library.capabilities = null;
     await _hub?.stop();
     if (_ownsDb) await db.close();
   }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import '../db/hub_database.dart';
 import '../protocol.dart';
@@ -13,9 +14,13 @@ import 'hub_module.dart';
 ///   muted}` and `display.control {action, positionMs?, muted?}`
 ///   (`display.pairing` comes from the server, see `HubServer`)
 class DisplayModule implements HubModule {
-  DisplayModule({required this.db});
+  DisplayModule({required this.db, this.onCapabilitiesChanged});
 
   final HubDatabase db;
+
+  /// Called when a display reports capabilities that differ from what was
+  /// stored (also the first report). Errors are ignored.
+  Future<void> Function()? onCapabilitiesChanged;
 
   static const _maxEntries = 128;
   static const _maxEntryLength = 256;
@@ -33,6 +38,16 @@ class DisplayModule implements HubModule {
 
   /// Id of the display that is connected right now, or null.
   String? get onlineDisplayId => _onlineDisplayId;
+
+  /// The capabilities of the connected display, else of the last one that
+  /// reported; null when none has reported yet.
+  Map<String, Object?>? get currentCapabilities {
+    final online = _onlineDisplayId;
+    if (online != null && _capabilities[online] != null) {
+      return _capabilities[online];
+    }
+    return _capabilities.isEmpty ? null : _capabilities.values.last;
+  }
 
   /// The capabilities [displayId] sent on its last connect, or null.
   Map<String, Object?>? capabilitiesFor(String displayId) =>
@@ -70,7 +85,12 @@ class DisplayModule implements HubModule {
       'render': _sizeField(call.args['render'], 'render'),
       'panel': _sizeField(call.args['panel'], 'panel'),
     };
+    final old = _capabilities.remove(call.device.id);
     _capabilities[call.device.id] = caps;
+    if (old == null || jsonEncode(old) != jsonEncode(caps)) {
+      final cb = onCapabilitiesChanged;
+      if (cb != null) cb().then<void>((_) {}, onError: (Object _) {});
+    }
     return null;
   }
 

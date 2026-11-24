@@ -66,12 +66,17 @@ class PlayerModule implements HubModule {
     required this.db,
     required this.display,
     required this.playlists,
+    this.unplayableReason,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
   final HubDatabase db;
   final DisplayModule display;
   final PlaylistSource playlists;
+
+  /// Why an item cannot be played (null when it can); `player.play` refuses
+  /// such an item.
+  final Future<String?> Function(String itemId)? unplayableReason;
   final DateTime Function() _now;
 
   /// How long a Pi-side position change shields against older TV reports.
@@ -232,6 +237,10 @@ class PlayerModule implements HubModule {
     final ids = await _items(playlistId);
     if (index < 0 || index >= ids.length) {
       throw const HubError(HubErrorCode.invalid, 'index is out of range');
+    }
+    final blocked = await unplayableReason?.call(ids[index]);
+    if (blocked != null) {
+      throw HubError(HubErrorCode.invalid, blocked);
     }
     p.muted = false; // `setMuted` lasts until the next `play`.
     _startItem(displayId, p, playlistId, ids, index);
