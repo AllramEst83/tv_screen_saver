@@ -33,6 +33,8 @@ abstract interface class ToolRunner {
     String tool,
     List<String> args, {
     required Duration timeout,
+    Map<String, String>? environment,
+    String? workingDirectory,
   });
 
   /// Kills every tool that is running.
@@ -75,13 +77,25 @@ class ProcessToolRunner implements ToolRunner {
     String tool,
     List<String> args, {
     required Duration timeout,
+    Map<String, String>? environment,
+    String? workingDirectory,
   }) async {
     final nice = _nice;
     final Process process;
     try {
       process = nice == null
-          ? await Process.start(tool, args)
-          : await Process.start(nice, ['-n', '19', tool, ...args]);
+          ? await Process.start(
+              tool,
+              args,
+              environment: environment,
+              workingDirectory: workingDirectory,
+            )
+          : await Process.start(
+              nice,
+              ['-n', '19', tool, ...args],
+              environment: environment,
+              workingDirectory: workingDirectory,
+            );
     } on ProcessException catch (e) {
       return ToolResult(127, '', e.message);
     }

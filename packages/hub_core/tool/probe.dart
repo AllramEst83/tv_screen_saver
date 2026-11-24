@@ -19,10 +19,16 @@ Future<void> main(List<String> args) async {
   String? capsFile;
   for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case '--out':
-        out = args[++i];
-      case '--tv-caps':
-        capsFile = args[++i];
+      case '--out' || '--tv-caps':
+        if (i + 1 >= args.length) {
+          stderr.writeln('${args[i]} needs a value');
+          exit(1);
+        }
+        if (args[i] == '--out') {
+          out = args[++i];
+        } else {
+          capsFile = args[++i];
+        }
       default:
         file = args[i];
     }
@@ -51,27 +57,41 @@ Future<void> main(List<String> args) async {
       report['kind'] = 'video';
       report['probe'] = info.toJson();
       if (capsFile != null) {
-        final caps = jsonDecode(File(capsFile).readAsStringSync());
+        final Object? caps;
+        try {
+          caps = jsonDecode(File(capsFile).readAsStringSync());
+        } on FormatException catch (e) {
+          stderr.writeln('--tv-caps is not valid JSON: ${e.message}');
+          exit(1);
+        } on FileSystemException catch (e) {
+          stderr.writeln('--tv-caps cannot be read: ${e.message}');
+          exit(1);
+        }
+        if (caps is! Map) {
+          stderr.writeln('--tv-caps must be a JSON object');
+          exit(1);
+        }
         final v = checkCapabilities(
           codec: info.codec,
           profile: info.profile,
           hdr: info.hdr,
           audioCodec: info.audioCodec,
-          capabilities: Map<String, Object?>.from(caps as Map),
+          capabilities: Map<String, Object?>.from(caps),
+          width: info.width,
+          height: info.height,
         );
         report['tv'] = v.supported ? 'supported' : v.reason;
       }
-      if (await runner.isAvailable('ffmpeg')) {
-        report['variants'] = await tools.videoVariants(
-          source: file,
-          info: info,
-          outDir: dir,
-          id: id,
-        );
-      } else {
-        stderr.writeln('ffmpeg is not installed: no poster');
-        report['variants'] = <String>[];
+      if (!await runner.isAvailable('ffmpeg')) {
+        stderr.writeln('ffmpeg is not installed');
+        exit(2);
       }
+      report['variants'] = await tools.videoVariants(
+        source: file,
+        info: info,
+        outDir: dir,
+        id: id,
+      );
     } else if (kind == 'image') {
       if (!await runner.isAvailable('vips') ||
           !await runner.isAvailable('vipsheader')) {

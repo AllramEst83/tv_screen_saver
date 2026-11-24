@@ -225,6 +225,40 @@ class PlayerModule implements HubModule {
     display.sendLoad(displayId, itemId: ids[index], startAt: 0, muted: p.muted);
   }
 
+  /// Goes idle: nothing is playable. The TV is told to clear the picture.
+  void _goIdle(String displayId, _Player p) {
+    p
+      ..itemId = null
+      ..state = PlayerState.idle
+      ..positionMs = 0
+      ..startedAt = null;
+    _emitChanged(p);
+    display.sendControl(displayId, action: 'stop');
+  }
+
+  /// Starts the first playable item at or after [index] (moving by [delta],
+  /// wrapping). Items the library says cannot be played are skipped; when
+  /// none is playable the player goes idle. True when an item started.
+  Future<bool> _startFrom(
+    String displayId,
+    _Player p,
+    String playlistId,
+    List<String> ids,
+    int index,
+    int delta,
+  ) async {
+    final n = ids.length;
+    for (var k = 0; k < n; k++) {
+      final i = (index + delta * k) % n;
+      if (await unplayableReason?.call(ids[i]) == null) {
+        _startItem(displayId, p, playlistId, ids, i);
+        return true;
+      }
+    }
+    _goIdle(displayId, p);
+    return false;
+  }
+
   // ---- phone and remote commands ----
 
   Future<Object?> _play(HubCall call) => _command((displayId, p) async {
@@ -252,7 +286,14 @@ class PlayerModule implements HubModule {
         _requireItem(p);
         final playlistId = p.playlistId!;
         final ids = await _items(playlistId);
-        _startItem(displayId, p, playlistId, ids, _stepIndex(p, ids, delta));
+        await _startFrom(
+          displayId,
+          p,
+          playlistId,
+          ids,
+          _stepIndex(p, ids, delta),
+          delta,
+        );
         return null;
       });
 
@@ -351,7 +392,7 @@ class PlayerModule implements HubModule {
     }
     final p = _playerOf(call);
     if (p.commandSinceConnect) {
-      _reconcile(call.device.id, p);
+      await _reconcile(call.device.id, p);
       return {'adopted': false};
     }
     final itemId = call.args['itemId'];
@@ -396,10 +437,28 @@ class PlayerModule implements HubModule {
   });
 
   /// The TV's report is older than a command: put the TV right.
-  void _reconcile(String displayId, _Player p) {
+  Future<void> _reconcile(String displayId, _Player p) async {
     final item = p.itemId;
     if (item == null) {
       display.sendControl(displayId, action: 'stop');
+      return;
+    }
+    final playlistId = p.playlistId;
+    if (playlistId != null && await unplayableReason?.call(item) != null) {
+      // The item became unplayable while the TV was away: move on.
+      final ids = await playlists.itemIds(playlistId);
+      if (ids == null || ids.isEmpty) {
+        _goIdle(displayId, p);
+      } else {
+        await _startFrom(
+          displayId,
+          p,
+          playlistId,
+          ids,
+          _stepIndex(p, ids, 1),
+          1,
+        );
+      }
       return;
     }
     display.sendLoad(
@@ -433,8 +492,15 @@ class PlayerModule implements HubModule {
       display.sendControl(call.device.id, action: 'stop');
       return {'moved': false};
     }
-    _startItem(call.device.id, p, p.playlistId!, ids, _stepIndex(p, ids, 1));
-    return {'moved': true};
+    final moved = await _startFrom(
+      call.device.id,
+      p,
+      p.playlistId!,
+      ids,
+      _stepIndex(p, ids, 1),
+      1,
+    );
+    return {'moved': moved};
   });
 
   /// The library removed [itemId]: a player that is on it moves on as if the
@@ -456,7 +522,7 @@ class PlayerModule implements HubModule {
         _emitChanged(p);
         display.sendControl(e.key, action: 'stop');
       } else {
-        _startItem(e.key, p, playlistId, ids, _stepIndex(p, ids, 1));
+        await _startFrom(e.key, p, playlistId, ids, _stepIndex(p, ids, 1), 1);
       }
     }
   });

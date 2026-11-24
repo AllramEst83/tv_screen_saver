@@ -2,7 +2,7 @@
 title: 'Pi media worker'
 type: 'feature'
 created: '2026-11-24'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '23c785000a8f42c94b6c9e8e40099c673e3e2221'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -65,11 +65,11 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `hub_database.dart` + `.g.dart` -- schema 3 columns and queries
-- [ ] `tool_runner.dart`, `media_worker.dart` -- probe parsing, capability and ceiling rules, variant generation, queue and timeouts
-- [ ] `library_store.dart`, `display_module.dart`, playlist and player modules, `config.dart` -- hooks, rechecks on capabilities, excluding `unsupported`
-- [ ] `test/**` -- every matrix row; fake-runner fixtures; real-tool tests that skip when tools are absent
-- [ ] `tool/probe.dart`, docs
+- [x] `hub_database.dart` + `.g.dart` -- schema 3 columns and queries
+- [x] `tool_runner.dart`, `media_worker.dart` -- probe parsing, capability and ceiling rules, variant generation, queue and timeouts
+- [x] `library_store.dart`, `display_module.dart`, playlist and player modules, `config.dart` -- hooks, rechecks on capabilities, excluding `unsupported`
+- [x] `test/**` -- every matrix row; fake-runner fixtures; real-tool tests that skip when tools are absent
+- [x] `tool/probe.dart`, docs
 
 **Acceptance Criteria:**
 - Given `dart analyze` and `dart test` in `packages/hub_core`, then both pass and the arm64 exe compiles.
@@ -78,9 +78,28 @@ context:
 
 ## Implementation Notes
 
+- Schema 3 adds audioCodec, profile, state, stateReason, cacheRequired, variants. Pi tools: ffprobe/ffmpeg 7.1.5 and libvips 8.16.1 installed by Kay. Dolby Vision with an HDR10/HLG/SDR base layer is stored as `DolbyVision/<base>` and plays on a TV that lists the base format. Capabilities live in memory only (the TV re-reports on connect). H.264 and common audio are treated as always supported; AV1, VP9, DTS and TrueHD only if the TV lists them. Posters for HDR sources are not tone mapped. The libvips path was verified only with a fake runner here; real-Pi verification via the upload smoke test and `tool/probe.dart`.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+| Finding | Verdict | Route | Evidence |
+| --- | --- | --- | --- |
+| Capability change from the TV never exercised end to end (DisplayModule callback, PiServer wiring); `player.play` refusal and `422 too_heavy` over HTTP untested | medium | patch | Grep: only hand-injected `caps` and direct calls in tests |
+| `unplayableReason` checked only in `player.play`; next/prev/auto-advance can start an unsupported item | medium | patch | player_module advance path has no check |
+| Capability check shallow: no H.264 High 10 / 4:2:2 or HEVC bit-depth check, resolution above the TV ignored, DV with an HDR10 base layer marked unsupported, unknown `codec_name` becomes "null", codecs without a decoder pattern | medium | patch | media_probe `_baselineVideo`, `_decoderPattern`, DV branch |
+| libvips path breakage: `[`/`]` in file names parsed as options; stale `.tmp.jpg` blocks the `keep=icc` retry; delete during a job throws unmapped; `_setError` after stop and on a vanished row | medium | patch | media_worker variants, `_run` catch-all |
+| `recheck()`/`idle` never complete when stopped or not started | low | patch | `_pump` returns without running |
+| Restart requeues every `new` item and sends `library.updated` with no change; `error` items retried only at start; poster retry doubles a timeout | medium | patch | `_needsWork`, `_write(notify:true)` |
+| `too_heavy` not applied to loose imports and silently skipped without ffprobe; leaked hash state on refusal; 30 s probe inside the last PUT | medium | patch | `_finish`, `reconcile` |
+| Poster for anamorphic video wrong shape; vips/ffmpeg not limited in threads on the Pi | low | patch | `fitWithin`, no `VIPS_CONCURRENCY` |
+| Docs: no client fallback rule for skipped variants, 422 `too_heavy` and probe exit codes mis-stated, garbled manual check text | low | patch (docs) | modules.md / BUILD_AND_DEPLOY.md |
+| `tool/probe.dart` exits 0 without ffmpeg, RangeError on a missing option value, invalid `--tv-caps` JSON | low | patch | Dev tool on the manual-test path |
+| Missing tests: env settings, `rotate` tag, `dvh1` without side data, DTS, `GET /thumb` Range | low | patch | Verification-gap evidence |
+| Capabilities only in memory after a Pi restart | low | reject | The TV reconnects within seconds |
+| HDR posters look washed out (no tone mapping), variants as large as the source for tiny posters/thumbs, stale variants after delete and re-upload of the same id, empty `finally`, `isAvailable` timeout | low | reject | Spec forbids tone mapping; no named harm |
+| Story file status, checkboxes and notes empty | false | reject | Workflow updates the story after review |
 
 ## Verification
 

@@ -101,6 +101,19 @@
     with libvips/ffmpeg, and the streaming-ceiling accept/reject rules (media-fidelity.md, media-server.md).
   spec_checkpoint: true
 
+- id: "4-7"
+  title: Phone app shell — drawer and grouped settings
+  description: >-
+    Phone navigation drawer (Now playing, Library, Playlists, Devices, Settings, About, Close app)
+    and a settings page with panes (Playback, Library and storage, Network and streaming, Devices and
+    pairing, About), backed by a Pi `settings` module with persisted values (modules.md `settings`).
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Runs right after 4-2 and before 4-3 so the upload and playlist screens live inside the shell.
+    Settings: default image seconds, transition, storage cap, streaming ceiling, TV cache cap; owner
+    only to change, everyone can read. Close app uses SystemNavigator.pop(). Friendly layout, large
+    touch targets, no jargon in labels.
+
 - id: "4-3"
   title: Phone image prep and upload UI
   description: >-

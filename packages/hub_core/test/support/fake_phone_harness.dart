@@ -316,6 +316,8 @@ class TestHubRig {
     Duration pairingTimeout = const Duration(seconds: 120),
     Duration pairCodeTtl = const Duration(seconds: 120),
     PlaylistSource? playlists,
+    Future<String?> Function(String itemId)? unplayableReason,
+    Future<void> Function()? onCapabilitiesChanged,
   }) async {
     final clock = FakeClock();
     final counter = CountingInterceptor();
@@ -348,11 +350,15 @@ class TestHubRig {
     DisplayModule? displayModule;
     PlayerModule? player;
     if (playlists != null) {
-      displayModule = DisplayModule(db: database);
+      displayModule = DisplayModule(
+        db: database,
+        onCapabilitiesChanged: onCapabilitiesChanged,
+      );
       player = PlayerModule(
         db: database,
         display: displayModule,
         playlists: playlists,
+        unplayableReason: unplayableReason,
         now: clock.now,
       );
       server.registerModule(displayModule);

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -7,105 +6,9 @@ import 'package:hub_core/hub_core.dart';
 import 'package:sqlite3/sqlite3.dart' as sql;
 import 'package:test/test.dart';
 
+import 'support/fake_tools.dart';
+
 String shaOf(List<int> data) => sha256.convert(data).toString();
-
-String ffprobeJson({
-  String codec = 'hevc',
-  String profile = 'Main 10',
-  String transfer = 'bt709',
-  String tag = 'hvc1',
-  String? audio = 'aac',
-  int width = 3840,
-  int height = 2160,
-  String duration = '100.0',
-  int? bitRate = 60000000,
-  List<Map<String, Object?>> sideData = const [],
-  Map<String, Object?> tags = const {},
-}) => jsonEncode({
-  'streams': [
-    {
-      'codec_type': 'video',
-      'codec_name': codec,
-      'profile': profile,
-      'width': width,
-      'height': height,
-      'color_transfer': transfer,
-      'codec_tag_string': tag,
-      'avg_frame_rate': '24000/1001',
-      'side_data_list': sideData,
-      'tags': tags,
-    },
-    if (audio != null)
-      {'codec_type': 'audio', 'codec_name': audio, 'profile': 'LC'},
-  ],
-  'format': {'duration': duration, 'bit_rate': ?bitRate?.toString()},
-});
-
-const tvCaps = {
-  'decoders': [
-    'OMX.x video/hevc hw=true profiles=[Main,Main10,Main10HDR10] max=3840x2160',
-    'OMX.y audio/ac3 hw=true channels<=6',
-    'OMX.y audio/eac3 hw=true channels<=8',
-  ],
-  'hdr': ['HDR10', 'HLG'],
-  'render': '3840x2160',
-  'panel': '3840x2160',
-};
-
-/// Answers tool calls from a script and records them.
-class FakeRunner implements ToolRunner {
-  FakeRunner({
-    this.available = const {'ffprobe', 'ffmpeg', 'vips', 'vipsheader'},
-  });
-
-  Set<String> available;
-  String probeOutput = ffprobeJson();
-  bool probeFails = false;
-  bool hang = false;
-  String imageHeader = 'width: 4000\nheight: 3000\norientation: 6\n';
-  bool rejectKeepIcc = false;
-  final calls = <List<String>>[];
-  Completer<void>? gate;
-
-  @override
-  Future<bool> isAvailable(String tool) async => available.contains(tool);
-
-  @override
-  void cancelAll() {}
-
-  @override
-  Future<ToolResult> run(
-    String tool,
-    List<String> args, {
-    required Duration timeout,
-  }) async {
-    calls.add([tool, ...args]);
-    final g = gate;
-    if (g != null && tool == 'ffmpeg') await g.future;
-    if (hang) return const ToolResult(-9, '', '', timedOut: true);
-    switch (tool) {
-      case 'ffprobe':
-        return probeFails
-            ? const ToolResult(1, '', 'Invalid data found\n')
-            : ToolResult(0, probeOutput, '');
-      case 'vipsheader':
-        return imageHeader.isEmpty
-            ? const ToolResult(1, '', 'not an image\n')
-            : ToolResult(0, imageHeader, '');
-      case 'ffmpeg':
-        File(args.last).writeAsBytesSync(List.filled(10, 1));
-        return const ToolResult(0, '', '');
-      case 'vips':
-        if (rejectKeepIcc && args[2].contains('keep=icc')) {
-          return const ToolResult(1, '', 'unknown option keep\n');
-        }
-        final out = args[2].split('[').first;
-        File(out).writeAsBytesSync(List.filled(10, 1));
-        return const ToolResult(0, '', '');
-    }
-    return const ToolResult(127, '', 'unknown tool');
-  }
-}
 
 void main() {
   group('parseFfprobe', () {
@@ -134,7 +37,7 @@ void main() {
             ],
           ),
         ).hdr,
-        'DolbyVision',
+        'DolbyVision/HDR10',
       );
     });
 
@@ -226,9 +129,11 @@ void main() {
     Future<void> startStore({
       int ceilingMbps = 80,
       int cacheBytes = 2500000000,
+      String media = 'media',
     }) async {
+      Directory('${tmp.path}/$media').createSync(recursive: true);
       config = ServerConfig(
-        mediaDir: '${tmp.path}/media',
+        mediaDir: '${tmp.path}/$media',
         tokenFile: '${tmp.path}/token',
         streamCeilingMbps: ceilingMbps,
         tvCacheBytes: cacheBytes,
@@ -492,6 +397,175 @@ void main() {
       final loose = (await db.libraryItem('loose.mp4'))!;
       expect(loose.state, 'ready');
       expect(loose.codec, 'hevc');
+    });
+
+    test('a bracketed media directory never reaches vips as options', () async {
+      await startStore(media: 'me[dia]');
+      final item = await upload('p.jpg', 'image/jpeg');
+      await store.worker.idle;
+      expect((await db.libraryItem(item.id))!.variants, '1920,thumb');
+      final calls = runner.calls.where((c) => c[0] == 'vips');
+      expect(calls, isNotEmpty);
+      for (final c in calls) {
+        expect(c[2], isNot(contains('[')), reason: 'source: ${c[2]}');
+        expect('['.allMatches(c[3]).length, 1, reason: 'output: ${c[3]}');
+        expect(c[3].split('[').first, isNot(contains('/')));
+      }
+      expect(runner.envs.last['VIPS_CONCURRENCY'], '1');
+      final left = Directory(
+        '${config.mediaDir}/.variants',
+      ).listSync().map((e) => e.path.split(RegExp(r'[\\/]')).last).toList();
+      expect(left.where((n) => n.contains('.src')), isEmpty);
+      expect(left.where((n) => n.contains('.tmp')), isEmpty);
+    });
+
+    test('ffmpeg runs with limited threads', () async {
+      await startStore();
+      await upload('a.mp4', 'video/mp4');
+      await store.worker.idle;
+      final c = runner.calls.firstWhere((c) => c[0] == 'ffmpeg');
+      expect(c, containsAllInOrder(['-threads', '2']));
+    });
+
+    test(
+      'a start with nothing to do does no job and sends no update',
+      () async {
+        caps = null;
+        await startStore();
+        final item = await upload('a.mp4', 'video/mp4');
+        await store.worker.idle;
+        expect((await db.libraryItem(item.id))!.state, 'new');
+        await store.stop();
+        runner.calls.clear();
+        events.clear();
+        await store.start();
+        await store.worker.idle;
+        expect(runner.calls, isEmpty);
+        expect(events.where((e) => e.kind == 'library.updated'), isEmpty);
+      },
+    );
+
+    test('error items are retried on tool refresh, 3 times at most', () async {
+      await startStore();
+      runner.probeFails = true;
+      final item = await upload('a.mp4', 'video/mp4');
+      await store.worker.idle;
+      expect((await db.libraryItem(item.id))!.state, 'error');
+      for (var i = 0; i < 6; i++) {
+        await store.worker.refreshTools();
+        await store.worker.idle;
+      }
+      // quick probe at the upload + the first job + 3 retries
+      expect(runner.calls.where((c) => c[0] == 'ffprobe').length, 5);
+      runner.probeFails = false;
+    });
+
+    test('a capability change retries an error item', () async {
+      await startStore();
+      runner.probeFails = true;
+      final item = await upload('a.mp4', 'video/mp4');
+      await store.worker.idle;
+      runner.probeFails = false;
+      await store.capabilitiesChanged();
+      await store.worker.idle;
+      expect((await db.libraryItem(item.id))!.state, 'ready');
+    });
+
+    test('a hand-copied heavy file is kept but unsupported', () async {
+      runner.probeOutput = ffprobeJson(bitRate: 90000000);
+      File('${tmp.path}/media/big.mp4').writeAsBytesSync(List.filled(1000, 5));
+      await startStore(cacheBytes: 3000);
+      await store.hashingDone;
+      await store.worker.idle;
+      final row = (await db.libraryItem('big.mp4'))!;
+      expect(row.state, 'unsupported');
+      expect(row.stateReason, contains('Lower its bitrate'));
+      expect(File('${config.mediaDir}/big.mp4').existsSync(), isTrue);
+      expect(await store.videoIds(), isEmpty);
+    });
+
+    test('a poster that times out is not retried at 0 s', () async {
+      await startStore();
+      runner.hangOn = {'ffmpeg'};
+      final item = await upload('a.mp4', 'video/mp4');
+      await store.worker.idle;
+      final row = (await db.libraryItem(item.id))!;
+      expect(row.state, 'error');
+      expect(row.stateReason, contains('timed out'));
+      expect(
+        runner.calls.where((c) => c[0] == 'ffmpeg' && c.contains('-frames:v')),
+        hasLength(1),
+      );
+      runner.hangOn = {};
+    });
+
+    test(
+      'anamorphic video: the poster is scaled to the displayed size',
+      () async {
+        runner.probeOutput = ffprobeJson(
+          width: 1440,
+          height: 1080,
+          sar: '4:3',
+          bitRate: 20000000,
+        );
+        await startStore();
+        final item = await upload('a.mp4', 'video/mp4');
+        await store.worker.idle;
+        final call = runner.calls.firstWhere(
+          (c) => c[0] == 'ffmpeg' && c.contains('-frames:v'),
+        );
+        expect(call[call.indexOf('-vf') + 1], startsWith('scale=1920:1080'));
+        expect(call[call.indexOf('-vf') + 1], contains('setsar=1'));
+        expect((await db.libraryItem(item.id))!.width, 1920);
+      },
+    );
+
+    test('video without a downscale is not rounded', () async {
+      runner.probeOutput = ffprobeJson(width: 641, height: 359);
+      await startStore();
+      await upload('a.mp4', 'video/mp4');
+      await store.worker.idle;
+      final call = runner.calls.firstWhere(
+        (c) => c[0] == 'ffmpeg' && c.contains('-frames:v'),
+      );
+      expect(call[call.indexOf('-vf') + 1], startsWith('scale=641:359'));
+    });
+
+    test(
+      'after stop: idle and recheck return at once, waiters complete',
+      () async {
+        await startStore();
+        final gate = runner.gate = Completer<void>();
+        await upload('a.mp4', 'video/mp4');
+        final waiting = store.worker.idle;
+        final stopping = store.stop();
+        gate.complete();
+        await stopping;
+        await waiting.timeout(const Duration(seconds: 5));
+        await store.worker.recheck().timeout(const Duration(seconds: 5));
+        await store.worker.idle.timeout(const Duration(seconds: 5));
+        // Nothing was marked as an error by the killed job.
+        expect(
+          (await db.allLibraryItems()).where((r) => r.state == 'error'),
+          isEmpty,
+        );
+      },
+    );
+
+    test('a library.updated is sent once for a finished item', () async {
+      await startStore();
+      final item = await upload('a.mp4', 'video/mp4');
+      await store.worker.idle;
+      expect(
+        events.where(
+          (e) => e.kind == 'library.updated' && e.data['id'] == item.id,
+        ),
+        hasLength(1),
+      );
+      // A recheck that changes nothing sends nothing.
+      events.clear();
+      await store.capabilitiesChanged();
+      expect(events.where((e) => e.kind == 'library.updated'), isEmpty);
     });
 
     test('item json carries the new fields', () async {

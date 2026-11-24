@@ -21,9 +21,12 @@ const kImageTimeout = Duration(seconds: 60);
 
 /// A tool failed, hung or could not read the file.
 class MediaToolException implements Exception {
-  const MediaToolException(this.reason);
+  const MediaToolException(this.reason, {this.timedOut = false});
 
   final String reason;
+
+  /// The tool ran past its timeout and was killed.
+  final bool timedOut;
 
   @override
   String toString() => 'MediaToolException($reason)';
@@ -42,7 +45,7 @@ class ImageDims {
 /// (video encoders want them).
 (int, int) fitWithin(int w, int h, int edge) {
   final longest = max(w, h);
-  if (longest <= edge) return (w - w % 2, h - h % 2);
+  if (longest <= edge) return (w, h); // no downscale, no rounding
   final k = edge / longest;
   int even(int v) => max(2, (v * k).round() & ~1);
   return (even(w), even(h));
@@ -64,14 +67,17 @@ class MediaTools {
   final ToolRunner runner;
 
   /// `ffprobe` on a video.
-  Future<ProbeInfo> probeVideo(String path, {int? fileBytes}) async {
-    final r = await runner.run(
-      'ffprobe',
-      ffprobeArgs(path),
-      timeout: kProbeTimeout,
-    );
+  Future<ProbeInfo> probeVideo(
+    String path, {
+    int? fileBytes,
+    Duration timeout = kProbeTimeout,
+  }) async {
+    final r = await runner.run('ffprobe', ffprobeArgs(path), timeout: timeout);
     if (r.timedOut) {
-      throw const MediaToolException('ffprobe timed out after 30 s');
+      throw MediaToolException(
+        'ffprobe timed out after ${timeout.inSeconds} s',
+        timedOut: true,
+      );
     }
     if (r.exitCode != 0) {
       final why = _firstLine(r.stderr);
@@ -95,7 +101,10 @@ class MediaTools {
       path,
     ], timeout: kImageTimeout);
     if (r.timedOut) {
-      throw const MediaToolException('vipsheader timed out after 60 s');
+      throw const MediaToolException(
+        'vipsheader timed out after 60 s',
+        timedOut: true,
+      );
     }
     if (r.exitCode != 0) {
       final why = _firstLine(r.stderr);
@@ -135,17 +144,25 @@ class MediaTools {
   }
 
   Future<void> _ffmpeg(List<String> args, String out, String what) async {
+    await _delete(out);
     final r = await runner.run('ffmpeg', [
       '-nostdin',
       '-v',
       'error',
       '-y',
+      '-threads',
+      '2',
       ...args,
+      '-threads',
+      '2',
       out,
     ], timeout: kImageTimeout);
     if (r.timedOut) {
       await _delete(out);
-      throw MediaToolException('ffmpeg timed out making the $what');
+      throw MediaToolException(
+        'ffmpeg timed out making the $what',
+        timedOut: true,
+      );
     }
     if (r.exitCode != 0 ||
         !await File(out).exists() ||
@@ -187,7 +204,7 @@ class MediaTools {
           '-frames:v',
           '1',
           '-vf',
-          'scale=$pw:$ph:flags=lanczos,format=yuvj420p',
+          'scale=$pw:$ph:flags=lanczos,setsar=1,format=yuvj420p',
           '-q:v',
           '2',
         ],
@@ -196,8 +213,8 @@ class MediaTools {
       );
       try {
         await poster(seek);
-      } on MediaToolException {
-        if (seek == 0) rethrow;
+      } on MediaToolException catch (e) {
+        if (seek == 0 || e.timedOut) rethrow;
         await poster(0); // a seek past the last keyframe
       }
       final makeThumb = max(pw, ph) > kThumbEdge;
@@ -208,7 +225,7 @@ class MediaTools {
             '-i',
             posterTmp,
             '-vf',
-            'scale=$tw:$th:flags=lanczos,format=yuvj420p',
+            'scale=$tw:$th:flags=lanczos,setsar=1,format=yuvj420p',
             '-q:v',
             '4',
           ],
@@ -233,6 +250,10 @@ class MediaTools {
   /// (orientation applied, ICC profile kept). A variant is skipped when the
   /// source is not larger than it or when the result is not smaller than the
   /// source file. Returns the variants that now exist.
+  ///
+  /// vips reads `[options]` out of file names, so it never sees [source] or
+  /// the real output path: it runs inside [outDir] on a safely named link (or
+  /// copy) of the source and writes a safely named temporary file.
   Future<List<String>> imageVariants({
     required String source,
     required ImageDims info,
@@ -242,52 +263,88 @@ class MediaTools {
   }) async {
     await Directory(outDir).create(recursive: true);
     final longest = max(info.width, info.height);
+    final dot = id.lastIndexOf('.');
+    final ext = dot > 0 ? id.substring(dot) : '';
+    final link = '$id.src$ext';
     final made = <String>[];
-    for (final (name, edge, quality) in const [
-      ('1920', kLargeEdge, 92),
-      ('thumb', kThumbEdge, 85),
-    ]) {
-      if (longest <= edge) continue;
-      final tmp = '$outDir/$id.$name.tmp.jpg';
-      try {
-        // libvips 8.16 saves with `keep=icc` (profile kept, other metadata
-        // dropped); older versions reject that option, so retry without it
-        // (they keep the profile by default).
-        Future<ToolResult> thumbnail(String options) => runner.run('vips', [
-          'thumbnail',
-          source,
-          '$tmp[$options]',
-          '$edge',
-          '--height',
-          '$edge',
-          '--size',
-          'down',
-        ], timeout: kImageTimeout);
-        var r = await thumbnail('Q=$quality,optimize_coding,keep=icc');
-        if (!r.timedOut && r.exitCode != 0 && !await File(tmp).exists()) {
-          r = await thumbnail('Q=$quality,optimize_coding');
+    var linked = false;
+    try {
+      for (final (name, edge, quality) in const [
+        ('1920', kLargeEdge, 92),
+        ('thumb', kThumbEdge, 85),
+      ]) {
+        if (longest <= edge) continue;
+        if (!linked) {
+          await _link(source, '$outDir/$link');
+          linked = true;
         }
-        if (r.timedOut) {
-          throw MediaToolException('vips timed out making the $name image');
+        final tmpName = '$id.$name.tmp.jpg';
+        final tmp = '$outDir/$tmpName';
+        try {
+          // libvips 8.16 saves with `keep=icc` (profile kept, other metadata
+          // dropped); older versions reject that option, so retry without it
+          // (they keep the profile by default).
+          Future<ToolResult> thumbnail(String options) async {
+            await _delete(tmp);
+            return runner.run(
+              'vips',
+              [
+                'thumbnail',
+                link,
+                '$tmpName[$options]',
+                '$edge',
+                '--height',
+                '$edge',
+                '--size',
+                'down',
+              ],
+              timeout: kImageTimeout,
+              environment: const {'VIPS_CONCURRENCY': '1'},
+              workingDirectory: outDir,
+            );
+          }
+
+          var r = await thumbnail('Q=$quality,optimize_coding,keep=icc');
+          if (!r.timedOut && r.exitCode != 0) {
+            r = await thumbnail('Q=$quality,optimize_coding');
+          }
+          if (r.timedOut) {
+            throw MediaToolException(
+              'vips timed out making the $name image',
+              timedOut: true,
+            );
+          }
+          if (r.exitCode != 0 || !await File(tmp).exists()) {
+            final why = _firstLine(r.stderr);
+            throw MediaToolException(
+              why.isEmpty
+                  ? 'The $name image could not be made'
+                  : 'The $name image could not be made: $why',
+            );
+          }
+          if (name != 'thumb' && await File(tmp).length() >= sourceBytes) {
+            continue; // as large as the source: serve `full` instead
+          }
+          await File(tmp).rename('$outDir/$id.$name');
+          made.add(name);
+        } finally {
+          await _delete(tmp);
         }
-        if (r.exitCode != 0 || !await File(tmp).exists()) {
-          final why = _firstLine(r.stderr);
-          throw MediaToolException(
-            why.isEmpty
-                ? 'The $name image could not be made'
-                : 'The $name image could not be made: $why',
-          );
-        }
-        if (name != 'thumb' && await File(tmp).length() >= sourceBytes) {
-          continue; // as large as the source: serve `full` instead
-        }
-        await File(tmp).rename('$outDir/$id.$name');
-        made.add(name);
-      } finally {
-        await _delete(tmp);
       }
+    } finally {
+      if (linked) await _delete('$outDir/$link');
     }
     return made;
+  }
+
+  /// A symlink to [source] at [to]; a copy where links are not allowed.
+  Future<void> _link(String source, String to) async {
+    await _delete(to);
+    try {
+      await Link(to).create(File(source).absolute.path);
+    } on FileSystemException {
+      await File(source).copy(to);
+    }
   }
 }
 
@@ -339,6 +396,10 @@ class MediaWorker {
   bool _recheckPending = false;
   Future<void> _loop = Future.value();
 
+  /// Automatic retries of `error` items in this run (at most 3 each).
+  final Map<String, int> _retries = {};
+  static const _maxRetries = 3;
+
   bool get hasFfprobe => _hasFfprobe;
   bool get hasFfmpeg => _hasFfmpeg;
   bool get hasVips => _hasVips;
@@ -349,6 +410,8 @@ class MediaWorker {
     await _probeTools(logMissing: true);
     _started = true;
     await _queueWaiting(includeErrors: true);
+    if (capabilities() != null) _recheckPending = true;
+    _pump();
   }
 
   /// Looks for tools again; queues the waiting items when one appeared.
@@ -356,7 +419,12 @@ class MediaWorker {
     final before = (_hasFfprobe, _hasFfmpeg, _hasVips);
     await _probeTools(logMissing: false);
     final after = (_hasFfprobe, _hasFfmpeg, _hasVips);
-    if (after != before) await _queueWaiting(includeErrors: false);
+    // Also the hourly retry of items that ended in `error`.
+    if (_started) {
+      await _queueWaiting(includeErrors: true);
+    } else if (after != before) {
+      await _queueWaiting(includeErrors: false);
+    }
   }
 
   Future<void> _probeTools({required bool logMissing}) async {
@@ -381,20 +449,24 @@ class MediaWorker {
     }
   }
 
-  /// Whether [r] still has work for the worker.
+  /// Whether [r] still has work for the worker. A `new` video that already
+  /// has its metadata and poster only waits for capabilities: no job.
   bool _needsWork(LibraryItemRow r, {required bool includeErrors}) {
-    if (r.state == 'error') return includeErrors;
-    if (r.state == 'new') return true;
+    if (r.state == 'error') {
+      return includeErrors && (_retries[r.id] ?? 0) < _maxRetries;
+    }
     if (r.kind == 'video') {
       return r.codec == null || !_variants(r).contains('poster');
     }
-    return false;
+    return r.state == 'new';
   }
 
   Future<void> _queueWaiting({required bool includeErrors}) async {
     try {
       for (final r in await db.allLibraryItems()) {
-        if (_needsWork(r, includeErrors: includeErrors)) enqueue(r.id);
+        if (!_needsWork(r, includeErrors: includeErrors)) continue;
+        if (r.state == 'error') _retries[r.id] = (_retries[r.id] ?? 0) + 1;
+        enqueue(r.id);
       }
     } catch (err) {
       if (!_stopped) _log('could not list the library: $err');
@@ -414,7 +486,10 @@ class MediaWorker {
   }
 
   /// Checks every probed video against the capabilities again.
-  Future<void> recheck() {
+  Future<void> recheck() async {
+    if (!_started || _stopped) return;
+    await _queueWaiting(includeErrors: true); // retry `error` items too
+    if (!_started || _stopped) return;
     _recheckPending = true;
     _pump();
     return idle;
@@ -422,7 +497,9 @@ class MediaWorker {
 
   /// Completes when nothing is queued or running.
   Future<void> get idle {
-    if (!_running && _queue.isEmpty && !_recheckPending) {
+    if (!_started ||
+        _stopped ||
+        (!_running && _queue.isEmpty && !_recheckPending)) {
       return Future.value();
     }
     final c = Completer<void>();
@@ -455,10 +532,14 @@ class MediaWorker {
           await _process(id);
         } catch (err) {
           if (!_stopped) {
-            _log('job for $id failed: $err');
-            await _setError(id, 'The media worker failed: $err');
+            if (await _exists(id)) {
+              _log('job for $id failed: $err');
+              await _setError(id, 'The media worker failed: $err');
+            } else {
+              await _deleteVariantFiles(id); // deleted during the job
+            }
           }
-        } finally {}
+        }
       }
     } finally {
       _running = false;
@@ -476,16 +557,36 @@ class MediaWorker {
     _queued.clear();
     runner.cancelAll();
     await _loop.catchError((Object _) {});
+    for (final c in _idle) {
+      if (!c.isCompleted) c.complete();
+    }
+    _idle.clear();
+  }
+
+  Future<bool> _exists(String id) async {
+    try {
+      return await db.libraryItem(id) != null;
+    } catch (_) {
+      return false;
+    }
   }
 
   // ---- upload hook ----
 
   /// One quick `ffprobe` for the upload path; null when the tool is missing
   /// or cannot read the file (the job records the error later).
+  ///
+  /// It waits 15 s at most; a file that takes longer is accepted and the
+  /// worker enforces the limits later (see [heavyReason]). Without `ffprobe`
+  /// there is no refusal at all.
   Future<ProbeInfo?> quickProbe(String path, {int? fileBytes}) async {
     if (!_hasFfprobe) return null;
     try {
-      return await tools.probeVideo(path, fileBytes: fileBytes);
+      return await tools.probeVideo(
+        path,
+        fileBytes: fileBytes,
+        timeout: const Duration(seconds: 15),
+      );
     } on MediaToolException {
       return null;
     }
@@ -493,10 +594,14 @@ class MediaWorker {
 
   /// Why a video must be refused: above the streaming ceiling and also larger
   /// than 25 % of the TV cache. Null when it can be stored.
-  String? tooHeavyReason(ProbeInfo info, int bytes) {
-    if (!isAboveCeiling(info.bitrate)) return null;
+  String? tooHeavyReason(ProbeInfo info, int bytes) =>
+      heavyReason(info.bitrate, bytes);
+
+  /// [tooHeavyReason] from a stored bitrate and size.
+  String? heavyReason(int? bitrate, int bytes) {
+    if (bitrate == null || !isAboveCeiling(bitrate)) return null;
     if (bytes * 4 <= config.tvCacheBytes) return null;
-    final mbps = (info.bitrate! / 1e6).toStringAsFixed(0);
+    final mbps = (bitrate / 1e6).toStringAsFixed(0);
     final gb = (bytes / 1e9).toStringAsFixed(1);
     return 'This video is $mbps Mbit/s and $gb GB: above the '
         '${config.streamCeilingMbps} Mbit/s streaming limit and too big to '
@@ -532,6 +637,10 @@ class MediaWorker {
     LibraryItemRow r,
     List<String> variants,
   ) {
+    // A hand-copied file the TV could neither stream nor cache is kept but
+    // not playable (an upload like that is refused instead).
+    final heavy = heavyReason(r.bitrate, r.bytes);
+    if (heavy != null) return (state: 'unsupported', reason: heavy);
     final caps = capabilities();
     if (caps == null) return (state: 'new', reason: null);
     final v = checkCapabilities(
@@ -540,6 +649,8 @@ class MediaWorker {
       hdr: r.hdr,
       audioCodec: r.audioCodec,
       capabilities: caps,
+      width: r.width,
+      height: r.height,
     );
     if (!v.supported) return (state: 'unsupported', reason: v.reason);
     return variants.contains('poster')
@@ -552,13 +663,16 @@ class MediaWorker {
     LibraryItemsCompanion c, {
     bool notify = false,
   }) async {
+    final before = notify ? await db.libraryItem(id) : null;
     if (await db.updateLibraryItemMedia(id, c) == 0) return null;
     final row = await db.libraryItem(id);
-    if (row != null && notify && !_stopped) onUpdated(row);
+    // Only tell the clients when something changed.
+    if (row != null && notify && !_stopped && row != before) onUpdated(row);
     return row;
   }
 
   Future<void> _setError(String id, String reason) async {
+    if (_stopped) return;
     try {
       await _write(
         id,
