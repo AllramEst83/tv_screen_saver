@@ -132,6 +132,12 @@ class DisplayPlayer {
   /// The native photo surface is wanted in the tree (a photo is on it).
   final ValueNotifier<bool> nativeImageActive = ValueNotifier(false);
 
+  /// True from the moment a clip or photo is asked for until its first
+  /// picture is on screen, when a clip or a photo changes over a clip or a
+  /// photo on another surface. The screen dips through black meanwhile
+  /// instead of showing the raw gap.
+  final ValueNotifier<bool> changing = ValueNotifier(false);
+
   /// What the info overlay shows about the current item.
   ItemInfo? info;
 
@@ -222,6 +228,11 @@ class DisplayPlayer {
     final seq = ++_loadSeq;
     _loop = loop;
     this.info = info;
+    // A photo over a photo fades by itself; every other change dips through
+    // black while the next picture starts.
+    final hadPicture = _itemId != null && !_failed;
+    final photoToPhoto = isImage && _isImage;
+    changing.value = hadPicture && !photoToPhoto;
     _itemId = itemId;
     _playing = true;
     if (muted != null) _muted = muted;
@@ -327,6 +338,7 @@ class DisplayPlayer {
       // Not here and the Pi does not answer: show the failure for a moment,
       // then ask the Pi to move on.
       _failed = true;
+      changing.value = false;
       _errorTimer = Timer(errorRetry, () => unawaited(_finished(itemId)));
       return;
     }
@@ -349,6 +361,7 @@ class DisplayPlayer {
       if (!drawn) nativeImageActive.value = false;
     }
     _nativeImagePath = drawn ? file.path : null;
+    changing.value = false; // the photo is on screen
     _imageBefore = startAtMs.clamp(0, imageMs);
     _imageSince = _playing ? _now() : null;
     image.value = drawn
@@ -458,6 +471,7 @@ class DisplayPlayer {
         _unpin();
         info = null;
         _loop = false;
+        changing.value = false;
         _publish();
         await native.release();
         return;
@@ -535,6 +549,9 @@ class DisplayPlayer {
     final s = await native.stats();
     if (_disposed || s == null || seq != _loadSeq || _itemId == null) return;
     _positionMs = s.position.inMilliseconds;
+    if (changing.value && (s.position > Duration.zero || s.error != null)) {
+      changing.value = false; // the clip is showing, or has failed
+    }
     final aspect = s.aspect;
     if (aspect != null && aspect > 0 && videoAspect.value != aspect) {
       videoAspect.value = aspect;
@@ -633,6 +650,7 @@ class DisplayPlayer {
     active.dispose();
     videoAspect.dispose();
     nativeImageActive.dispose();
+    changing.dispose();
     image.dispose();
     native.onEnded = null;
     await native.release();

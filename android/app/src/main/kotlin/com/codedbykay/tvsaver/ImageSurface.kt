@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
+import android.view.SurfaceHolder
 import android.view.SurfaceView
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
@@ -66,6 +67,24 @@ class ImageSurface(private val activity: Activity) {
 
     fun attach(v: SurfaceView) {
         v.holder.setFixedSize(TARGET_W, TARGET_H)
+        // A photo drawn before the buffer reached 3840x2160 would sit in a
+        // corner: when the size arrives, draw the photo on screen again.
+        v.holder.addCallback(object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {}
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) {}
+
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                if (width != TARGET_W || height != TARGET_H) return
+                val mine = seq.get()
+                handler.post {
+                    val bitmap = shown
+                    if (bitmap != null && mine == seq.get() && view === v) {
+                        drawFrame(v, null, bitmap, 1f, 1f)
+                    }
+                }
+            }
+        })
         view = v
         val request = synchronized(this) { waiting.also { waiting = null } }
         if (request != null) {
@@ -193,6 +212,7 @@ class ImageSurface(private val activity: Activity) {
         val previous = shown
         val start = SystemClock.uptimeMillis()
         var reported = false
+        var waited = 0L
         lateinit var frame: Runnable
         frame = Runnable {
             if (mine != seq.get()) {
@@ -210,9 +230,16 @@ class ImageSurface(private val activity: Activity) {
                 1f
             }
             val drawn = drawFrame(view, if (fading) previous else null, next, alpha, zoom)
+            if (drawn == Drawn.WRONG_SIZE && waited < MAX_SIZE_WAIT_MS) {
+                // The buffer is not 3840x2160 yet: a photo drawn now would sit
+                // in a corner once the size changes. Try again shortly.
+                waited += SIZE_RETRY_MS
+                handler.postDelayed(frame, SIZE_RETRY_MS)
+                return@Runnable
+            }
             if (!reported) {
                 reported = true
-                if (!drawn) {
+                if (drawn == Drawn.NO_SURFACE) {
                     // No surface to draw on: let the Flutter widget do it.
                     next.recycle()
                     finish(done, false)
@@ -238,14 +265,18 @@ class ImageSurface(private val activity: Activity) {
         to: Bitmap?,
         alpha: Float,
         zoom: Float,
-    ): Boolean {
+    ): Drawn {
         val holder = view.holder
-        if (!holder.surface.isValid) return false
+        if (!holder.surface.isValid) return Drawn.NO_SURFACE
         val canvas: Canvas = try {
             holder.lockHardwareCanvas()
         } catch (t: Throwable) {
-            return false
-        } ?: return false
+            return Drawn.NO_SURFACE
+        } ?: return Drawn.NO_SURFACE
+        if (canvas.width != TARGET_W || canvas.height != TARGET_H) {
+            holder.unlockCanvasAndPost(canvas) // nothing drawn
+            return Drawn.WRONG_SIZE
+        }
         try {
             canvas.drawColor(Color.BLACK)
             from?.let { drawFitted(canvas, it, 255, 1f) }
@@ -253,8 +284,10 @@ class ImageSurface(private val activity: Activity) {
         } finally {
             holder.unlockCanvasAndPost(canvas)
         }
-        return true
+        return Drawn.OK
     }
+
+    private enum class Drawn { OK, NO_SURFACE, WRONG_SIZE }
 
     private fun drawFitted(canvas: Canvas, bitmap: Bitmap, alpha: Int, zoom: Float) {
         val cw = canvas.width.toFloat()
@@ -278,6 +311,8 @@ class ImageSurface(private val activity: Activity) {
         const val TARGET_W = 3840
         const val TARGET_H = 2160
         private const val FRAME_MS = 16L
+        private const val SIZE_RETRY_MS = 40L
+        private const val MAX_SIZE_WAIT_MS = 2000L
 
         /** How long a photo waits for its view to be created. */
         private const val VIEW_WAIT_MS = 3000L

@@ -392,4 +392,56 @@ void main() {
       expect(player.videoAspect.value, isNull);
     });
   });
+
+  group('changing between kinds', () {
+    test('the first picture and a photo over a photo do not dip', () async {
+      await photo('a.jpg');
+      expect(player.changing.value, isFalse);
+      var dipped = false;
+      player.changing.addListener(() => dipped |= player.changing.value);
+      await photo('b.jpg');
+      expect(dipped, isFalse);
+    });
+
+    test(
+      'a clip over a photo dips until the clip shows its first frame',
+      () async {
+        await photo('a.jpg');
+        native.statsValue = const Media3Stats(); // position 0: not showing yet
+        await player.load(itemId: 'v.mp4', url: url('v.mp4'), headers: headers);
+        expect(player.changing.value, isTrue);
+        native.statsValue = const Media3Stats(
+          position: Duration(milliseconds: 80),
+        );
+        await player.freshSnapshot();
+        expect(player.changing.value, isFalse);
+      },
+    );
+
+    test(
+      'a photo over a clip dips only until the photo is on screen',
+      () async {
+        native.statsValue = const Media3Stats(position: Duration(seconds: 1));
+        await player.load(itemId: 'v.mp4', url: url('v.mp4'), headers: headers);
+        final seen = <bool>[];
+        player.changing.addListener(() => seen.add(player.changing.value));
+        await photo('a.jpg');
+        expect(seen, [true, false]);
+        expect(player.changing.value, isFalse);
+      },
+    );
+
+    test('a clip that fails, and stop, never leave the screen dark', () async {
+      await photo('a.jpg');
+      native.statsValue = const Media3Stats();
+      await player.load(itemId: 'v.mp4', url: url('v.mp4'), headers: headers);
+      expect(player.changing.value, isTrue);
+      native.statsValue = const Media3Stats(error: 'boom');
+      await player.freshSnapshot();
+      expect(player.changing.value, isFalse);
+      await player.load(itemId: 'w.mp4', url: url('w.mp4'), headers: headers);
+      await player.control('stop');
+      expect(player.changing.value, isFalse);
+    });
+  });
 }

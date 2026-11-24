@@ -336,6 +336,22 @@ class _DisplayScreenState extends State<DisplayScreen>
                 ),
               ),
               Positioned.fill(child: ImageStage(slots: _client.player.image)),
+              // Dip through black while a clip or photo changes over
+              // another kind, instead of showing the raw gap.
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: _client.player.changing,
+                    builder: (context, changing, _) => AnimatedOpacity(
+                      key: const Key('change-dip'),
+                      opacity: changing ? 1 : 0,
+                      duration: Duration(milliseconds: changing ? 250 : 500),
+                      curve: Curves.easeInOut,
+                      child: const ColoredBox(color: Colors.black),
+                    ),
+                  ),
+                ),
+              ),
               if (!_client.player.hasItem && !_client.needsPairing) _idleView(),
               if (_infoVisible && _client.player.hasItem)
                 InfoOverlay(
