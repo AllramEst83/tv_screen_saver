@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'tv/display_report.dart';
+import 'tv/pi/pi_screen.dart';
 import 'tv/report_screen.dart';
 import 'tv/video_spike/spike_log.dart';
 import 'tv/video_spike/spike_native.dart';
@@ -67,8 +68,9 @@ class TvSaverApp extends StatelessWidget {
   }
 }
 
-/// Wraps the report screen: OK / Enter on the remote opens the video spike
-/// (story 1-2) as a second route. The report screen itself is unchanged.
+/// Wraps the report screen: OK / Enter opens the Pi stream & throughput screen
+/// (story 2-3), Right arrow opens the local video spike (story 1-2). The
+/// report screen itself is unchanged.
 class _SpikeLauncher extends StatelessWidget {
   const _SpikeLauncher({required this.child});
 
@@ -86,6 +88,12 @@ class _SpikeLauncher extends StatelessWidget {
             key == LogicalKeyboardKey.enter) {
           Navigator.of(
             context,
+          ).push(MaterialPageRoute<void>(builder: (_) => const PiScreen()));
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowRight) {
+          Navigator.of(
+            context,
           ).push(MaterialPageRoute<void>(builder: (_) => const SpikeScreen()));
           return KeyEventResult.handled;
         }
@@ -98,7 +106,7 @@ class _SpikeLauncher extends StatelessWidget {
             right: height * 0.1,
             bottom: height * 0.08,
             child: Text(
-              'OK: video spike',
+              'OK: Pi stream   Right: video spike',
               style: TextStyle(
                 color: const Color(0xFFD0D0D0),
                 fontSize: height * 0.035,

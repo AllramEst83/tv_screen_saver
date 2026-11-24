@@ -201,3 +201,43 @@ Reboot test (after the first install):
 - Reboot the Pi (`sudo reboot`).
 - **Pass:** within 2 minutes, `curl http://<pi-ip>:8772/health` returns `200` with `"ok":true`, `systemctl is-active tvsaver` prints `active`, and `avahi-browse -rt _tvsaver._tcp` lists `TV Saver on gemini-pi` on port 8772.
 - **Fail:** `/health` does not answer within 2 minutes, `tvsaver` is inactive/failed (`journalctl -u tvsaver -n 30`), or `_tvsaver._tcp` is missing from `avahi-browse`.
+
+## 11. TV plays from the Pi, throughput & power-cut test (story 2-3)
+
+Streams the 5 spike clips over LAN HTTP (`Authorization: Bearer`, Media3 `SurfaceView`), measures sustained Pi → TV Wi-Fi throughput with an in-memory 1 GiB download (60 % ceiling), and verifies unattended power-cut recovery. Nothing here changes any TV setting.
+
+### Stage clips, 1 GiB file, and `pi_config.json`
+
+Make sure the TV APK from sections 4–5 is installed (`INTERNET` + `usesCleartextTraffic`), the spike clips exist (`bash tool/video/generate_clips.sh`), and `tvsaver` is running on the Pi. Then from Git Bash on the Floor 1 desktop:
+
+```bash
+PI_HOST=192.168.0.43 bash tool/pi/setup_phase2.sh 192.168.0.24:5555
+```
+
+`setup_phase2.sh` copies `build/spike-media/[1-5]-*.mp4` and creates a 1 GiB sparse `throughput-1g.bin` in `~/tvsaver/media/` on the Pi, reads `~/.config/tvsaver/token` silently over SSH, and pushes `pi_config.json` into `/sdcard/Android/data/com.codedbykay.tvsaver.tv/files/pi_config.json` (token never printed).
+
+### Play the Pi playlist & run the 1 GiB throughput benchmark
+
+On the TV, open **TV Saver**:
+- Press **OK** to open **Pi stream & throughput** (`Right` still opens the local **Video spike**).
+- Select **Play Pi playlist**: streams all 5 clips in a loop via Media3 `SurfaceView`. **Left / Right** switches clips, **OK** toggles the overlay (clip, decoder, HDR, dropped frames, position), **Back** stops.
+- Select **Run 1 GiB throughput test**: streams `/media/throughput-1g.bin/full` into memory (zero TV flash writes), displays live MB/s & Mbps, and logs the final Mbps and 60 % ceiling. **Back** cancels cleanly.
+
+Read the TV logs and record the throughput figures in `_bmad-output/specs/spec-tv-screensaver/.memlog.md`:
+
+```bash
+adb -s 192.168.0.24:5555 logcat -d -s flutter | grep -E 'PiThroughput|PiStream'
+```
+
+### Power-cut test (CAP-11)
+
+While the TV is streaming the Pi playlist, run from Git Bash:
+
+```bash
+PI_HOST=192.168.0.43 bash tool/pi/power_cut_test.sh
+```
+
+Follow the prompts to pull and restore Pi power. Pass criteria:
+- TV displays `Reconnecting…` during the outage and auto-resumes playback when the Pi returns (`PiStream: disconnected` / `reconnected`).
+- `/health` answers `200` within 120 s of power restore.
+- Pi rejoins `LightSpeed_Auto_Floor_1` (not Floor 2), `tvsaver.service` is `active`, and `avahi-browse -rt _tvsaver._tcp` lists port 8772.

@@ -16,14 +16,20 @@ import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
+import java.io.IOException
 
 /**
  * Story 1-2 spike (video path). Channel `tvsaver/video`:
@@ -46,6 +52,7 @@ class VideoSpike(private val activity: Activity) {
     private var droppedFrames = 0
     private var inputFormat: Format? = null
     private var loopMode = "repeatOne"
+    private var lastHttpStatus: Int? = null
 
     private val analytics = object : AnalyticsListener {
         override fun onVideoDecoderInitialized(
@@ -71,6 +78,24 @@ class VideoSpike(private val activity: Activity) {
             decoderReuseEvaluation: DecoderReuseEvaluation?,
         ) {
             inputFormat = format
+        }
+
+        override fun onLoadCompleted(
+            eventTime: AnalyticsListener.EventTime,
+            loadEventInfo: LoadEventInfo,
+            mediaLoadData: MediaLoadData,
+        ) {
+            lastHttpStatus = null
+        }
+
+        override fun onLoadError(
+            eventTime: AnalyticsListener.EventTime,
+            loadEventInfo: LoadEventInfo,
+            mediaLoadData: MediaLoadData,
+            error: IOException,
+            wasCanceled: Boolean,
+        ) {
+            extractHttpStatus(error)?.let { lastHttpStatus = it }
         }
     }
 
@@ -101,6 +126,7 @@ class VideoSpike(private val activity: Activity) {
         try {
             when (call.method) {
                 "spikeDir" -> result.success(activity.getExternalFilesDir(null)?.absolutePath?.let { "$it/spike" })
+                "filesDir" -> result.success(activity.getExternalFilesDir(null)?.absolutePath)
                 "decoders" -> result.success(decoderLines())
                 "displayInfo" -> result.success(displayInfo())
                 "probe" -> result.success(probe(call.argument<String>("path")!!))
@@ -108,11 +134,24 @@ class VideoSpike(private val activity: Activity) {
                     m3Open(call.argument<String>("path")!!, call.argument<String>("loop") ?: "repeatOne")
                     result.success(null)
                 }
+                "m3OpenHttp" -> {
+                    val urls = call.argument<List<String>>("urls") ?: emptyList()
+                    if (urls.isEmpty()) {
+                        result.error("invalid_args", "urls must not be empty", null)
+                        return
+                    }
+                    @Suppress("UNCHECKED_CAST")
+                    val headers = call.argument<Map<String, String>>("headers") ?: emptyMap()
+                    m3OpenHttp(urls, headers)
+                    result.success(null)
+                }
                 "m3Stats" -> result.success(m3Stats())
                 "m3Control" -> {
                     when (call.argument<String>("action")) {
                         "play" -> player?.play()
                         "pause" -> player?.pause()
+                        "next" -> player?.seekToNextMediaItem()
+                        "prev" -> player?.seekToPreviousMediaItem()
                         "release" -> m3Release()
                     }
                     result.success(null)
@@ -133,6 +172,7 @@ class VideoSpike(private val activity: Activity) {
         decoderName = null
         droppedFrames = 0
         inputFormat = null
+        lastHttpStatus = null
         loopMode = loop
         val exo = ExoPlayer.Builder(activity).build()
         exo.addAnalyticsListener(analytics)
@@ -152,21 +192,62 @@ class VideoSpike(private val activity: Activity) {
         player = exo
     }
 
+    private fun m3OpenHttp(urls: List<String>, headers: Map<String, String>) {
+        m3Release()
+        decoderName = null
+        droppedFrames = 0
+        inputFormat = null
+        lastHttpStatus = null
+        loopMode = if (urls.size == 1) "repeatOne" else "playlist"
+        val httpFactory = DefaultHttpDataSource.Factory()
+        if (headers.isNotEmpty()) {
+            httpFactory.setDefaultRequestProperties(headers)
+        }
+        val mediaSourceFactory = DefaultMediaSourceFactory(activity)
+            .setDataSourceFactory(httpFactory)
+        val exo = ExoPlayer.Builder(activity)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
+        exo.addAnalyticsListener(analytics)
+        val items = urls.map { MediaItem.fromUri(it) }
+        exo.setMediaItems(items)
+        exo.repeatMode = if (items.size == 1) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_ALL
+        surfaceView?.let { exo.setVideoSurfaceView(it) }
+        exo.prepare()
+        exo.playWhenReady = true
+        player = exo
+    }
+
     private fun m3Release() {
         player?.let {
             it.removeAnalyticsListener(analytics)
             it.release()
         }
         player = null
+        lastHttpStatus = null
+    }
+
+    private fun extractHttpStatus(t: Throwable?): Int? {
+        var cur = t
+        while (cur != null) {
+            if (cur is HttpDataSource.InvalidResponseCodeException) {
+                return cur.responseCode
+            }
+            cur = cur.cause
+        }
+        return null
     }
 
     private fun m3Stats(): Map<String, Any?> {
         val p = player
         val fmt = p?.videoFormat ?: inputFormat
+        val durMs = p?.duration?.takeIf { it != C.TIME_UNSET && it >= 0L }
+        val err = p?.playerError
         return mapOf(
             "playing" to (p?.isPlaying ?: false),
             "state" to p?.playbackState,
             "positionMs" to p?.currentPosition,
+            "durationMs" to durMs,
             "item" to p?.currentMediaItemIndex,
             "loop" to loopMode,
             "decoder" to decoderName,
@@ -175,7 +256,8 @@ class VideoSpike(private val activity: Activity) {
             "height" to fmt?.height,
             "frameRate" to fmt?.frameRate?.takeIf { it > 0f },
             "hdr" to hdrName(fmt),
-            "error" to p?.playerError?.let { "${it.errorCodeName}: ${it.message}" },
+            "httpStatus" to (extractHttpStatus(err) ?: lastHttpStatus),
+            "error" to err?.let { "${it.errorCodeName}: ${it.message}" },
         )
     }
 

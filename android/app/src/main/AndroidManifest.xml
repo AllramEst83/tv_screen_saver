@@ -1,9 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Shared by both flavors. TV-only entries are in src/tv/AndroidManifest.xml. -->
+    <!-- Release APKs lack Flutter's debug INTERNET; LAN HTTP needs cleartext. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="TV Saver"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

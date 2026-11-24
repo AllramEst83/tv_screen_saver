@@ -79,7 +79,9 @@ class Media3Stats {
     this.frameRate,
     this.error,
     this.position = Duration.zero,
+    this.duration,
     this.item,
+    this.httpStatus,
   });
 
   final String? decoder;
@@ -88,10 +90,13 @@ class Media3Stats {
   final double? frameRate;
   final String? error;
   final Duration position;
+  final Duration? duration;
   final int? item;
+  final int? httpStatus;
 
   static Media3Stats? fromMap(Map<Object?, Object?>? m) {
     if (m == null) return null;
+    final durMs = m['durationMs'] as int?;
     return Media3Stats(
       decoder: m['decoder'] as String?,
       hdr: m['hdr'] as String?,
@@ -99,7 +104,9 @@ class Media3Stats {
       frameRate: (m['frameRate'] as num?)?.toDouble(),
       error: m['error'] as String?,
       position: Duration(milliseconds: (m['positionMs'] as int?) ?? 0),
+      duration: durMs == null ? null : Duration(milliseconds: durMs),
       item: m['item'] as int?,
+      httpStatus: m['httpStatus'] as int?,
     );
   }
 }
@@ -161,6 +168,63 @@ class ChannelSpikeNative implements SpikeNative {
   @override
   Future<Media3Stats?> media3Stats() async =>
       Media3Stats.fromMap(await _call<Map<Object?, Object?>>('m3Stats'));
+
+  @override
+  Future<void> media3Release() =>
+      _call<void>('m3Control', {'action': 'release'});
+}
+
+/// Native bridge for story 2-3 Pi streaming (`filesDir`, HTTP Media3 playlist,
+/// next/prev, stats). Kept separate from [SpikeNative] so existing 1-2 spike
+/// fakes and tests stay unchanged.
+abstract class PiVideoNative {
+  /// The app's external files directory (`.../files`), or null if unavailable.
+  Future<String?> filesDir();
+  Future<DisplayModeInfo?> displayInfo();
+  Future<void> media3OpenHttp(List<String> urls, Map<String, String> headers);
+  Future<Media3Stats?> media3Stats();
+  Future<void> media3Next();
+  Future<void> media3Prev();
+  Future<void> media3Release();
+}
+
+/// [PiVideoNative] over [videoChannel].
+class ChannelPiVideoNative implements PiVideoNative {
+  const ChannelPiVideoNative([this.channel = videoChannel]);
+
+  final MethodChannel channel;
+
+  Future<T?> _call<T>(String method, [Map<String, Object?>? args]) async {
+    try {
+      return await channel.invokeMethod<T>(method, args);
+    } on PlatformException catch (_) {
+      return null;
+    } on MissingPluginException catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<String?> filesDir() => _call<String>('filesDir');
+
+  @override
+  Future<DisplayModeInfo?> displayInfo() async => DisplayModeInfo.fromMap(
+    await _call<Map<Object?, Object?>>('displayInfo'),
+  );
+
+  @override
+  Future<void> media3OpenHttp(List<String> urls, Map<String, String> headers) =>
+      _call<void>('m3OpenHttp', {'urls': urls, 'headers': headers});
+
+  @override
+  Future<Media3Stats?> media3Stats() async =>
+      Media3Stats.fromMap(await _call<Map<Object?, Object?>>('m3Stats'));
+
+  @override
+  Future<void> media3Next() => _call<void>('m3Control', {'action': 'next'});
+
+  @override
+  Future<void> media3Prev() => _call<void>('m3Control', {'action': 'prev'});
 
   @override
   Future<void> media3Release() =>

@@ -97,11 +97,13 @@ void main() {
     );
   });
 
-  testWidgets('the TV app opens the spike with OK', (tester) async {
+  testWidgets('the TV app opens Pi stream with OK and spike with Right', (
+    tester,
+  ) async {
     await tester.pumpWidget(const TvSaverApp(version: '1'));
-    expect(find.text('OK: video spike'), findsOneWidget);
+    expect(find.text('OK: Pi stream   Right: video spike'), findsOneWidget);
 
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pumpAndSettle();
 
     expect(find.text('Video spike'), findsOneWidget);
