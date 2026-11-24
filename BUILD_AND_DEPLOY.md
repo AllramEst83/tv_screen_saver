@@ -465,3 +465,13 @@ The desktop PC serves the update; the Pi is not involved. The PC and the TV must
 4. The screen checks at once. When it says "Version x is ready", press **OK**: the TV downloads the APK, verifies its sha256 and opens the system installer, which asks for the last word. The first time Android also asks you to allow TV Saver to install apps (a system screen; the app changes nothing itself). If you leave the installer without installing, the screen says so and OK tries again.
 
 The Menu screen also says "Version x is ready: press Down" after the app has found one at start. A manifest without a checksum, an APK on another host or a damaged download is refused.
+
+## 18. A still as a 4K HEVC clip (story 7-1, optional)
+
+For a picture that must look exactly the same on every TV, show it as a 4K clip through the hardware video decoder instead of the photo path. The Pi does no transcoding, so the clip is made on the PC (`ffmpeg` needed, section 8):
+
+```bash
+bash tool/video/still_to_clip.sh <image> [seconds] [out-dir]
+```
+
+It writes `build/still-clips/<name>-4k.mp4`: the picture fitted into 3840 x 2160 on black, HEVC Main10, SDR, 24 fps, 10 s by default. Copy it into the inbox share (section 15) or upload it from the phone; it appears in the library as a video and goes into a playlist like any clip. A playlist of just that clip loops without a gap.
