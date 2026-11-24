@@ -3,63 +3,77 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'config.dart';
+import 'db/hub_database.dart';
 import 'mime.dart';
 import 'range.dart';
+import 'server/hub_server.dart';
+import 'tv_store.dart';
 
 const serverVersion = 1;
 
 final _idPattern = RegExp(r'^[A-Za-z0-9._-]+$');
 
-/// Constant-time comparison of two strings (length is not hidden).
-bool constantTimeEquals(String a, String b) {
-  final x = utf8.encode(a);
-  final y = utf8.encode(b);
-  var diff = x.length ^ y.length;
-  final n = x.length > y.length ? x.length : y.length;
-  for (var i = 0; i < n; i++) {
-    diff |= (i < x.length ? x[i] : 0) ^ (i < y.length ? y[i] : 0);
-  }
-  return diff == 0;
-}
-
+/// The 2-2 media routes (`/health`, bearer-token `/media/<id>/full` with
+/// Range) as a handler mounted on [HubServer] via `registerHttpHandler`.
 class PiServer {
-  PiServer(this.config, this.token);
+  PiServer(this.config, this.token, {HubDatabase? db})
+    : _ownsDb = db == null,
+      db = db ?? HubDatabase.inMemory();
 
   final ServerConfig config;
   final String token;
-  HttpServer? _http;
+  final HubDatabase db;
+  final bool _ownsDb;
+  late final HubServer hub;
+  bool _started = false;
 
-  int get port => _http!.port;
+  int get port => hub.port;
 
+  /// Starts one [HubServer] on [ServerConfig.port]. Throws a
+  /// [SocketException] when the port is busy.
   Future<void> start({String address = '0.0.0.0'}) async {
-    final http = await HttpServer.bind(address, config.port);
-    _http = http;
-    http.listen(
-      (req) => _handle(req).catchError((Object err, StackTrace _) {
-        // Never let one request take the server down; never log headers/tokens.
-        stderr.writeln('tvsaver error ${req.method} ${req.uri.path}: $err');
-        try {
-          req.response.statusCode = HttpStatus.internalServerError;
-          req.response.contentLength = 0;
-        } catch (_) {
-          // Headers already sent; tear down the socket instead of closing 200.
-          try {
-            req.response
-                .detachSocket(writeHeaders: false)
-                .then((s) => s.destroy())
-                .catchError((Object _) {});
-          } catch (_) {}
-          return;
-        }
-        req.response.close().catchError((Object _) {});
-      }),
-      onError: (Object err) {
-        stderr.writeln('tvsaver server error: $err');
-      },
-    );
+    hub = HubServer(
+      db: db,
+      store: MemoryTvStore(config.serverId),
+      name: config.serverId,
+      preferredPort: config.port,
+      bindAddress: InternetAddress(address),
+      strictPort: true,
+    )..registerHttpHandler(handle);
+    _started = true;
+    await hub.start();
   }
 
-  Future<void> stop() async => _http?.close(force: true);
+  Future<void> stop() async {
+    if (_started) await hub.stop();
+    if (_ownsDb) await db.close();
+  }
+
+  /// Handles every request that is not a WebSocket upgrade. Always claims the
+  /// request (returns true) so unknown paths keep the 2-2 401/404 behaviour.
+  Future<bool> handle(HttpRequest req) async {
+    try {
+      await _handle(req);
+    } catch (err) {
+      // Never let one request take the server down; never log headers/tokens.
+      stderr.writeln('tvsaver error ${req.method} ${req.uri.path}: $err');
+      try {
+        req.response.statusCode = HttpStatus.internalServerError;
+        req.response.contentLength = 0;
+      } catch (_) {
+        // Headers already sent; tear down the socket instead of closing 200.
+        try {
+          req.response
+              .detachSocket(writeHeaders: false)
+              .then((s) => s.destroy())
+              .catchError((Object _) {});
+        } catch (_) {}
+        return true;
+      }
+      req.response.close().catchError((Object _) {});
+    }
+    return true;
+  }
 
   bool _authorized(HttpRequest req) {
     final h = req.headers.value(HttpHeaders.authorizationHeader)?.trimLeft();
@@ -84,7 +98,7 @@ class PiServer {
         'ok': true,
         'id': config.serverId,
         'v': serverVersion,
-        'clients': 0,
+        'clients': hub.readyClientCount,
       }));
       req.response.headers.contentType = ContentType.json;
       req.response.contentLength = body.length;

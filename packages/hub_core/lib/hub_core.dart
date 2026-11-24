@@ -1,4 +1,17 @@
+export 'src/advertiser.dart';
+export 'src/clock_offset.dart';
 export 'src/config.dart';
+export 'src/db/hub_database.dart';
+export 'src/hub_client.dart';
+export 'src/hub_scanner.dart';
 export 'src/mime.dart';
+export 'src/observable.dart';
+export 'src/protocol.dart';
 export 'src/range.dart';
 export 'src/server.dart';
+export 'src/server/devices_module.dart';
+export 'src/server/hub_module.dart';
+export 'src/server/hub_server.dart';
+export 'src/token_store.dart';
+export 'src/tv_store.dart';
+export 'src/update_manifest.dart';

@@ -6,12 +6,16 @@ class ServerConfig {
   ServerConfig({
     required this.mediaDir,
     required this.tokenFile,
+    this.dbFile,
     this.port = 8772,
     this.serverId = 'tvsaver',
   });
 
   final String mediaDir;
   final String tokenFile;
+
+  /// SQLite file for devices and pairings; null means in memory.
+  final String? dbFile;
   final int port;
   final String serverId;
 
@@ -21,6 +25,7 @@ class ServerConfig {
     return ServerConfig(
       mediaDir: e['TVSAVER_MEDIA_DIR'] ?? '$home/tvsaver/media',
       tokenFile: e['TVSAVER_TOKEN_FILE'] ?? '$home/.config/tvsaver/token',
+      dbFile: e['TVSAVER_DB_FILE'] ?? '$home/tvsaver/hub.db',
       port: int.tryParse(e['TVSAVER_PORT'] ?? '') ?? 8772,
       serverId: e['TVSAVER_ID'] ?? Platform.localHostname,
     );
