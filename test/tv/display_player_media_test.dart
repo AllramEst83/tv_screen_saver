@@ -265,4 +265,91 @@ void main() {
     await wait(300);
     expect(player.snapshot.positionMs, greaterThan(200));
   });
+
+  group('native 4K photos', () {
+    setUp(() => player.nativeImages = true);
+
+    test(
+      'a photo is drawn on the video surface, not as a Flutter slide',
+      () async {
+        await photo('p.jpg', ms: 5000);
+        final shown = native.shows.single;
+        expect(shown.path, endsWith('p.jpg.full'));
+        expect(shown.crossfadeMs, 800);
+        expect(shown.kenBurns, isFalse);
+        expect(shown.durationMs, 5000);
+        expect(player.image.value, isNull);
+        expect(player.snapshot.state, 'playing');
+        expect(player.fromCache, isTrue);
+      },
+    );
+
+    test(
+      'a photo after a photo fades over it: the surface is not released',
+      () async {
+        await photo('a.jpg');
+        native.calls.clear();
+        await photo('b.jpg');
+        expect(native.calls, isNot(contains('release')));
+        expect(native.shows, hasLength(2));
+        // A photo after a clip releases the player first.
+        await player.load(itemId: 'v.mp4', url: url('v.mp4'), headers: headers);
+        native.calls.clear();
+        await photo('c.jpg');
+        expect(native.calls.first, 'release');
+      },
+    );
+
+    test('a cut and Ken Burns reach the native side', () async {
+      await player.load(
+        itemId: 'p.jpg',
+        url: url('p.jpg'),
+        headers: headers,
+        isImage: true,
+        imageMs: 4000,
+        crossfade: false,
+        kenBurns: true,
+      );
+      expect(native.shows.single.crossfadeMs, 0);
+      expect(native.shows.single.kenBurns, isTrue);
+    });
+
+    test(
+      'a TV that cannot draw natively falls back to the Flutter widget',
+      () async {
+        native.imageSupported = false;
+        await photo('p.jpg');
+        expect(native.shows, hasLength(1));
+        expect(player.image.value, isNotNull);
+      },
+    );
+
+    test('the clock, pause and the end work as for a Flutter photo', () async {
+      await photo('p.jpg', ms: 400);
+      await wait(150);
+      await player.control('pause');
+      await wait(500);
+      expect(ended, isEmpty);
+      await player.control('resume');
+      await wait(450);
+      expect(ended, ['p.jpg']);
+    });
+
+    test('a new surface (after the menu) gets the photo again', () async {
+      await photo('p.jpg');
+      native.shows.clear();
+      await player.viewDisposed();
+      await player.viewCreated();
+      expect(native.shows.single.path, endsWith('p.jpg.full'));
+      expect(native.shows.single.crossfadeMs, 0);
+    });
+
+    test('stop blanks the surface', () async {
+      await photo('p.jpg');
+      native.calls.clear();
+      await player.control('stop');
+      expect(native.calls, contains('release'));
+      expect(player.hasItem, isFalse);
+    });
+  });
 }

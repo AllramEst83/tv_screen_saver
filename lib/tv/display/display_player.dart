@@ -116,7 +116,7 @@ class DisplayPlayer {
   static String _fullVariant() => 'full';
 
   /// The item on screen plays from a file in the TV cache.
-  bool get fromCache => _url?.startsWith('file:') ?? image.value != null;
+  bool get fromCache => _url?.startsWith('file:') ?? _photoShown;
 
   /// The photo on screen, or null while a clip (or nothing) plays.
   final ValueNotifier<ImageSlot?> image = ValueNotifier(null);
@@ -135,6 +135,10 @@ class DisplayPlayer {
   void _publish() {
     if (!_disposed) active.value = playing;
   }
+
+  /// Show photos on the native 4K surface (when the Flutter plane is below
+  /// the panel). The Flutter widget stays the fallback.
+  bool nativeImages = false;
 
   String? _itemId;
   String? _url;
@@ -157,6 +161,9 @@ class DisplayPlayer {
   // already shown and `_imageSince` when the clock last started (null while
   // paused).
   bool _isImage = false;
+
+  /// The cached file the native surface shows (null on the Flutter path).
+  String? _nativeImagePath;
   int _imageMs = 0;
   int _imageBefore = 0;
   DateTime? _imageSince;
@@ -269,6 +276,7 @@ class DisplayPlayer {
     bool crossfade,
     bool kenBurns,
   ) async {
+    final wasImage = _isImage;
     _isImage = true;
     _url = null;
     _stopTimers();
@@ -315,21 +323,39 @@ class DisplayPlayer {
       return;
     }
     _pin(file.uri.pathSegments.last);
-    await native.release(); // the clip, if one was playing, gives way
+    // The clip, if one was playing, gives way (a photo after a photo does
+    // not: it fades over it).
+    if (!wasImage) await native.release();
     if (seq != _loadSeq || _disposed) return;
+    var drawn = false;
+    if (nativeImages) {
+      drawn = await native.showImage(
+        path: file.path,
+        crossfadeMs: crossfade ? 800 : 0,
+        kenBurns: kenBurns,
+        durationMs: imageMs,
+      );
+      if (seq != _loadSeq || _disposed) return;
+    }
+    _nativeImagePath = drawn ? file.path : null;
     _imageBefore = startAtMs.clamp(0, imageMs);
     _imageSince = _playing ? _now() : null;
-    image.value = ImageSlot(
-      file: file,
-      nonce: seq,
-      crossfade: crossfade,
-      kenBurns: kenBurns,
-      durationMs: imageMs,
-    );
+    image.value = drawn
+        ? null
+        : ImageSlot(
+            file: file,
+            nonce: seq,
+            crossfade: crossfade,
+            kenBurns: kenBurns,
+            durationMs: imageMs,
+          );
     _armImage(itemId);
     _positionTimer = Timer.periodic(positionInterval, (_) => _sendPosition());
     _scheduleAnchor();
   }
+
+  /// A photo is on screen, natively or as a Flutter slide.
+  bool get _photoShown => image.value != null || _nativeImagePath != null;
 
   int get _imageElapsed {
     final since = _imageSince;
@@ -352,6 +378,7 @@ class DisplayPlayer {
     _imageTimer = null;
     _imageSince = null;
     _imageBefore = 0;
+    _nativeImagePath = null;
     image.value = null;
   }
 
@@ -386,7 +413,7 @@ class DisplayPlayer {
         _playing = true;
         if (_isImage) {
           _imageSince ??= _now();
-          if (_itemId != null && image.value != null) _armImage(_itemId!);
+          if (_itemId != null && _photoShown) _armImage(_itemId!);
         } else if (_itemId != null) {
           await native.resume();
         }
@@ -433,7 +460,13 @@ class DisplayPlayer {
   /// The SurfaceView exists: show the current item (again, after a menu).
   Future<void> viewCreated() async {
     _viewReady = true;
-    if (_isImage) return; // A photo is a Flutter widget: nothing to restore.
+    if (_isImage) {
+      // A Flutter photo is a widget and needs nothing; the native surface is
+      // new again and must be drawn once more.
+      final path = _nativeImagePath;
+      if (path != null && !_disposed) await native.showImage(path: path);
+      return;
+    }
     if (_itemId != null && _url != null && !_disposed) {
       var start = _positionMs;
       final released = _releasedAt;
@@ -528,7 +561,7 @@ class DisplayPlayer {
   /// The item is over (or cannot be played): the Pi moves on, or, without
   /// the Pi, it starts again here.
   Future<void> _finished(String id) async {
-    if (_loop && _isImage && image.value != null && !_failed) {
+    if (_loop && _isImage && _photoShown && !_failed) {
       // A playlist of one photo: show it again, no round trip.
       _imageBefore = 0;
       _imageSince = _playing ? _now() : null;
@@ -547,7 +580,7 @@ class DisplayPlayer {
       // Without the Pi the photo starts again here.
       _imageBefore = 0;
       _imageSince = _playing ? _now() : null;
-      if (image.value != null) {
+      if (_photoShown) {
         _armImage(id);
       } else {
         _failed = false;

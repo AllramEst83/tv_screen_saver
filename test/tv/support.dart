@@ -26,6 +26,11 @@ class FakeDisplayNative implements DisplayVideoNative {
 
   Media3Stats? statsValue = const Media3Stats();
 
+  /// What `showImage` answers (a TV that cannot draw photos natively: false).
+  bool imageSupported = true;
+  final List<({String path, int crossfadeMs, bool kenBurns, int durationMs})>
+  shows = [];
+
   @override
   void Function()? onEnded;
 
@@ -61,6 +66,22 @@ class FakeDisplayNative implements DisplayVideoNative {
   }
 
   @override
+  Future<bool> showImage({
+    required String path,
+    int crossfadeMs = 0,
+    bool kenBurns = false,
+    int durationMs = 0,
+  }) async {
+    shows.add((
+      path: path,
+      crossfadeMs: crossfadeMs,
+      kenBurns: kenBurns,
+      durationMs: durationMs,
+    ));
+    return imageSupported;
+  }
+
+  @override
   Future<void> pause() async => calls.add('pause');
 
   @override
@@ -88,6 +109,7 @@ class TvRig {
     Duration positionInterval = const Duration(milliseconds: 100),
     Duration handshakeTimeout = const Duration(seconds: 20),
     MediaCache? cache,
+    String render = '3840x2160',
   }) : store = store ?? MemoryHubTokenStore(),
        lock = FakeLock(),
        native = FakeDisplayNative() {
@@ -117,7 +139,7 @@ class TvRig {
       capabilities: () async => {
         'decoders': ['hevc'],
         'hdr': ['HDR10'],
-        'render': '3840x2160',
+        'render': render,
         'panel': '3840x2160',
       },
       positionInterval: positionInterval,

@@ -21,6 +21,17 @@ abstract class DisplayVideoNative {
     bool loop = false,
   });
 
+  /// Draws the photo at [path] on the video surface at the panel's own size
+  /// (3840x2160), so the 1080p Flutter plane does not halve it. True once it
+  /// is on screen; false when this TV cannot (the caller shows it with a
+  /// Flutter widget). The photo on screen stays until the new one is ready.
+  Future<bool> showImage({
+    required String path,
+    int crossfadeMs = 0,
+    bool kenBurns = false,
+    int durationMs = 0,
+  });
+
   Future<void> pause();
   Future<void> resume();
   Future<void> seek(int positionMs);
@@ -85,6 +96,21 @@ class ChannelDisplayNative implements DisplayVideoNative {
     'playing': playing,
     'loop': loop,
   });
+
+  @override
+  Future<bool> showImage({
+    required String path,
+    int crossfadeMs = 0,
+    bool kenBurns = false,
+    int durationMs = 0,
+  }) async =>
+      await _call<bool>('m3ShowImage', {
+        'path': path,
+        'crossfadeMs': crossfadeMs,
+        'kenBurns': kenBurns,
+        'durationMs': durationMs,
+      }) ??
+      false;
 
   @override
   Future<void> pause() => _call<void>('m3Control', {'action': 'pause'});

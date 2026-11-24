@@ -47,8 +47,8 @@ void main() {
     tmp.deleteSync(recursive: true);
   });
 
-  Future<void> playAll() async {
-    tv = TvRig(rig, cache: cache);
+  Future<void> playAll({String render = '3840x2160'}) async {
+    tv = TvRig(rig, cache: cache, render: render);
     await tv!.start();
     await until(() => tv!.display.pairing != null);
     phone = PhoneRig();
@@ -79,5 +79,24 @@ void main() {
     // the photo is skipped; what matters is that it took the photo path and
     // never opened the video view.
     expect(tv!.native.opens, isEmpty);
+  });
+
+  test(
+    'a 1080p Flutter plane on a 4K panel: photos go native, full size',
+    () async {
+      await playAll(render: '1920x1080');
+      await until(() => cache.prefetches.isNotEmpty);
+      expect(tv!.display.player.nativeImages, isTrue);
+      expect(tv!.display.player.imageVariant(), 'full');
+      expect(cache.prefetches.first.first.key, 'b.jpg.full');
+      expect(cache.prefetches.first.first.fallback, isNull);
+    },
+  );
+
+  test('a full 4K Flutter plane keeps the Flutter widget', () async {
+    await playAll();
+    await until(() => cache.prefetches.isNotEmpty);
+    expect(tv!.display.player.nativeImages, isFalse);
+    expect(tv!.display.player.imageVariant(), 'full');
   });
 }

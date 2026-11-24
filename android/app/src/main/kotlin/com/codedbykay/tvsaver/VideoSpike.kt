@@ -58,6 +58,7 @@ class VideoSpike(
     private val onItemEnded: () -> Unit = {},
 ) {
     private var surfaceView: SurfaceView? = null
+    private val images = ImageSurface(activity)
     private var player: ExoPlayer? = null
     private var decoderName: String? = null
     private var droppedFrames = 0
@@ -178,6 +179,22 @@ class VideoSpike(
                         call.argument<Boolean>("loop") ?: false,
                     )
                     result.success(null)
+                }
+                "m3ShowImage" -> {
+                    val path = call.argument<String>("path")
+                    if (path.isNullOrEmpty()) {
+                        result.error("invalid_args", "path must not be empty", null)
+                        return
+                    }
+                    // The video player gives way; the picture is drawn on its surface.
+                    player?.let { m3Release() }
+                    images.show(
+                        surfaceView,
+                        path,
+                        call.argument<Number>("crossfadeMs")?.toInt() ?: 0,
+                        call.argument<Boolean>("kenBurns") ?: false,
+                        call.argument<Number>("durationMs")?.toInt() ?: 0,
+                    ) { ok -> result.success(ok) }
                 }
                 "m3Stats" -> result.success(m3Stats())
                 "m3Control" -> {
@@ -307,6 +324,7 @@ class VideoSpike(
     }
 
     private fun m3Release() {
+        images.stop(surfaceView, blank = true)
         player?.let {
             it.removeListener(endListener)
             it.removeAnalyticsListener(analytics)

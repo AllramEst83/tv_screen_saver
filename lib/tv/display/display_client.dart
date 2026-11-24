@@ -110,7 +110,9 @@ class DisplayClient extends ChangeNotifier {
       reportPosition: _reportPosition,
       cache: cache,
       imageVariant: () =>
-          _renderWidth >= 3840 || _renderWidth == 0 ? 'full' : '1920',
+          player.nativeImages || _renderWidth >= 3840 || _renderWidth == 0
+          ? 'full'
+          : '1920',
     );
   }
 
@@ -329,6 +331,11 @@ class DisplayClient extends ChangeNotifier {
     try {
       final caps = await _capabilities().timeout(const Duration(seconds: 5));
       _renderWidth = _widthOf(caps['render']);
+      // The Flutter plane is below the panel (1080p on the X90K): photos go
+      // on the native 4K surface and the full-size file is used.
+      final panelWidth = _widthOf(caps['panel']);
+      player.nativeImages =
+          panelWidth >= 3840 && _renderWidth > 0 && _renderWidth < 3840;
       await client.request('display.capabilities', caps);
     } catch (e) {
       _log('sending capabilities', e); // The report still goes out.
