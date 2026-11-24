@@ -8,6 +8,7 @@ import '../cache/media_cache.dart';
 import '../display_report.dart';
 import 'display_native.dart';
 import 'display_player.dart';
+import 'offline_playlist.dart';
 
 /// The pairing code the Pi relays to the TV (`display.pairing`).
 class PairingInfo {
@@ -153,6 +154,14 @@ class DisplayClient extends ChangeNotifier {
   PairingInfo? _pairing;
   String? _pairingError;
   Map<String, dynamic>? _lastChanged;
+
+  /// The current playlist, for looping the cached part of it when the Pi
+  /// cannot be reached.
+  OfflinePlaylist? _offline;
+
+  /// Where the Pi last was and the token for it (offline loads use them to
+  /// name cached files).
+  ({String host, int port, String token})? _base;
 
   HubClientState get hub => client.state.value;
   bool get connected => hub.phase == HubConnectionPhase.connected;
@@ -336,11 +345,16 @@ class DisplayClient extends ChangeNotifier {
     final id = s.itemId;
     final changed = _lastChanged;
     final sameItem = id != null && changed?['itemId'] == id;
+    // After a trip through the cached playlist the TV is on an item the Pi
+    // has not heard of: name it by the playlist the TV was given.
+    final local = id == null || sameItem ? -1 : (_offline?.indexOf(id) ?? -1);
     return {
       'playlistId': id == null
           ? null
-          : (sameItem ? changed!['playlistId'] : kAllPlaylistId),
-      'index': sameItem ? (changed!['index'] ?? 0) : 0,
+          : sameItem
+          ? changed!['playlistId']
+          : (local >= 0 ? _offline!.playlistId : kAllPlaylistId),
+      'index': sameItem ? (changed!['index'] ?? 0) : (local >= 0 ? local : 0),
       'itemId': id,
       'state': s.state,
       'positionMs': id == null ? 0 : s.positionMs,
@@ -379,6 +393,8 @@ class DisplayClient extends ChangeNotifier {
           await _onLoad(msg);
         case 'display.prefetch':
           await _onPrefetch(msg);
+        case 'display.playlist':
+          _offline = OfflinePlaylist.tryParse(msg) ?? _offline;
         case 'display.control':
           await player.control(
             '${msg['action']}',
@@ -423,10 +439,11 @@ class DisplayClient extends ChangeNotifier {
       }
       return;
     }
+    _base = (host: host!, port: port!, token: token);
     final url = Uri(
       scheme: 'http',
-      host: host!,
-      port: port!,
+      host: host,
+      port: port,
       pathSegments: ['media', itemId, msg['variant'] as String? ?? 'full'],
     );
     await player.load(
@@ -466,6 +483,7 @@ class DisplayClient extends ChangeNotifier {
     if (host == null || port == null || hubId == null) return;
     final token = (await store.getPairing(hubId))?.token;
     if (token == null || token.isEmpty) return;
+    _base = (host: host, port: port, token: token);
     final headers = {'Authorization': 'Bearer $token'};
     Uri urlOf(String id, String variant) => Uri(
       scheme: 'http',
@@ -551,7 +569,8 @@ class DisplayClient extends ChangeNotifier {
   // ---- player reports ----
 
   Future<bool> _reportEnded(String itemId) async {
-    if (!connected) return false;
+    // Without the Pi the next cached item plays; with none, this one loops.
+    if (!connected) return _advanceLocally(1);
     try {
       final r = await client.request('player.ended', {'itemId': itemId});
       // `moved: false`: the Pi has nothing next (stale item, emptied
@@ -604,13 +623,31 @@ class DisplayClient extends ChangeNotifier {
   /// OK: pause when playing, resume when paused.
   Future<void> togglePause() async {
     if (!player.hasItem) return;
+    if (!connected) {
+      await player.control(player.playing ? 'pause' : 'resume');
+      _notify();
+      return;
+    }
     await _quiet(
       () => client.request(player.playing ? 'player.pause' : 'player.resume'),
     );
   }
 
-  Future<void> next() => _quiet(() => client.request('player.next'));
-  Future<void> prev() => _quiet(() => client.request('player.prev'));
+  Future<void> next() async {
+    if (!connected) {
+      await _advanceLocally(1);
+      return;
+    }
+    await _quiet(() => client.request('player.next'));
+  }
+
+  Future<void> prev() async {
+    if (!connected) {
+      await _advanceLocally(-1);
+      return;
+    }
+    await _quiet(() => client.request('player.prev'));
+  }
 
   /// Fast-forward / rewind: a seek of [deltaMs] from the picture's position.
   Future<void> seekBy(int deltaMs) async {
@@ -620,7 +657,68 @@ class DisplayClient extends ChangeNotifier {
     final dur = s.durationMs;
     if (dur != null && target > dur) target = dur;
     if (target < 0) target = 0;
+    if (!connected) {
+      await player.control('seek', positionMs: target);
+      return;
+    }
     await _quiet(() => client.request('player.seek', {'positionMs': target}));
+  }
+
+  // ---- offline ----
+
+  /// Whether the file the player would use for [item] is in the cache.
+  Future<bool> _isCached(OfflineItem item) async {
+    final cache = player.cache;
+    if (cache == null) return false;
+    if (!item.isImage) return await cache.lookup('${item.id}.full') != null;
+    final variant = player.imageVariant();
+    if (variant != 'full' &&
+        await cache.lookup('${item.id}.$variant') != null) {
+      return true;
+    }
+    return await cache.lookup('${item.id}.full') != null;
+  }
+
+  /// Plays the next (or previous) item of the playlist that is in the cache.
+  /// False when there is none other than the current one.
+  Future<bool> _advanceLocally(int delta) async {
+    final list = _offline;
+    final base = _base;
+    if (list == null || base == null || list.items.isEmpty) return false;
+    final n = list.items.length;
+    final current = player.itemId;
+    final at = current == null ? -1 : list.indexOf(current);
+    final start = at >= 0 ? at : (delta > 0 ? -1 : 0);
+    for (var k = 1; k <= n; k++) {
+      final i = (((start + delta * k) % n) + n) % n;
+      final item = list.items[i];
+      if (item.id == current) continue;
+      if (!await _isCached(item)) continue;
+      await player.load(
+        itemId: item.id,
+        url: Uri(
+          scheme: 'http',
+          host: base.host,
+          port: base.port,
+          pathSegments: ['media', item.id, 'full'],
+        ).toString(),
+        headers: {'Authorization': 'Bearer ${base.token}'},
+        muted: player.muted,
+        isImage: item.isImage,
+        imageMs: list.imageMs ?? 10000,
+        crossfade: list.crossfade,
+        kenBurns: list.kenBurns,
+        info: ItemInfo(
+          name: item.name,
+          index: i,
+          count: n,
+          isImage: item.isImage,
+        ),
+      );
+      _notify();
+      return true;
+    }
+    return false;
   }
 
   /// Hold Back for 10 s: forget every phone. False when the Pi did not do it.

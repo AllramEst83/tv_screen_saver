@@ -14,6 +14,10 @@ abstract final class PlayerState {
 }
 
 class _Player {
+  /// The playlist the TV was last given (`display.playlist`), by a key of
+  /// its id and order; cleared when the TV reconnects.
+  String? sentPlaylistKey;
+
   String? playlistId;
   int index = 0;
   String? itemId;
@@ -280,6 +284,9 @@ class PlayerModule implements HubModule {
       muted: p.muted,
       extra: extra,
     );
+    if (playlistId != null && list != null) {
+      await _sendPlaylist(displayId, p, playlistId, list);
+    }
     if (playlistId == null || prefetchCount <= 0 || list == null) return;
     if (list.length < 2) return;
     final at = index ?? list.indexOf(itemId);
@@ -295,6 +302,54 @@ class PlayerModule implements HubModule {
         itemIds: next,
         cacheBytes: cacheBytes?.call(),
       );
+    }
+  }
+
+  /// Most items of a playlist the TV is given for offline play.
+  static const maxOfflineItems = 300;
+
+  /// Sends `display.playlist` when the TV does not have this playlist (or this
+  /// order of it) yet: `{playlistId, items[{id, kind, name?, cacheRequired?}],
+  /// imageMs?, transition?, kenBurns?}`. Photo timing is the playlist's.
+  Future<void> _sendPlaylist(
+    String displayId,
+    _Player p,
+    String playlistId,
+    List<String> list,
+  ) async {
+    final key = '$playlistId|${Object.hashAll(list)}|${list.length}';
+    if (p.sentPlaylistKey == key || loadExtras == null) return;
+    try {
+      final items = <Map<String, Object?>>[];
+      Map<String, Object?> defaults = const {};
+      for (final id in list.take(maxOfflineItems)) {
+        final e = await loadExtras!(playlistId, id);
+        final kind = e['kind'];
+        if (kind is! String) continue;
+        if (kind == 'image' && defaults.isEmpty) {
+          defaults = {
+            'imageMs': e['imageMs'],
+            'transition': e['transition'],
+            'kenBurns': e['kenBurns'],
+          };
+        }
+        final name = e['name'];
+        items.add({
+          'id': id,
+          'kind': kind,
+          if (name is String)
+            'name': name.length > 60 ? name.substring(0, 60) : name,
+          if (e['cacheRequired'] == true) 'cacheRequired': true,
+        });
+      }
+      p.sentPlaylistKey = key;
+      display.sendPlaylist(displayId, {
+        'playlistId': playlistId,
+        'items': items,
+        ...defaults,
+      });
+    } catch (_) {
+      // The TV just has less to loop offline.
     }
   }
 
@@ -507,6 +562,8 @@ class PlayerModule implements HubModule {
       ..ignorePositionUntil = 0;
     if (call.args['muted'] is bool) p.muted = call.args['muted'] as bool;
     _emitChanged(p);
+    // The TV keeps playing what it has; give it the playlist for offline.
+    await _sendPlaylist(call.device.id, p, playlistId, ids!);
     return {'adopted': true};
   });
 
@@ -629,6 +686,7 @@ class PlayerModule implements HubModule {
             }
           } else if (!p.online && on) {
             p.commandSinceConnect = false;
+            p.sentPlaylistKey = null; // a restarted TV has lost its copy
           }
           p.online = on;
         }

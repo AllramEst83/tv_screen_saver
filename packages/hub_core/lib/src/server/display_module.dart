@@ -112,6 +112,11 @@ class DisplayModule implements HubModule {
     });
   }
 
+  /// Gives [displayId] the order and kinds of the current playlist so it can
+  /// keep looping what it has cached when the Pi is out of reach.
+  void sendPlaylist(String displayId, Map<String, Object?> data) =>
+      _send(displayId, 'display.playlist', data);
+
   /// Tells [displayId] which items will play next so it can cache them, and
   /// how many bytes its cache may hold.
   void sendPrefetch(

@@ -132,4 +132,59 @@ void main() {
       expect(load['muted'], false);
     },
   );
+
+  group('display.playlist for offline play', () {
+    Future<Map<String, Object?>> extras(String playlist, String item) async => {
+      'kind': item.endsWith('.jpg') ? 'image' : 'video',
+      'name': 'Name of $item',
+      if (item.endsWith('.jpg')) ...{
+        'imageMs': 12000,
+        'transition': 'cut',
+        'kenBurns': true,
+      },
+      if (item == 'c.mp4') 'cacheRequired': true,
+    };
+
+    test('the TV gets the order, kinds, names and photo timing', () async {
+      await start(extras: extras);
+      await phone.request('player.play', {'playlistId': 'all'});
+      final pl = await tv.waitFor((m) => m['t'] == 'display.playlist');
+      expect(pl['playlistId'], 'all');
+      final items = (pl['items'] as List).cast<Map<String, dynamic>>();
+      expect(items.map((i) => i['id']), ['a.jpg', 'b.jpg', 'c.mp4', 'd.jpg']);
+      expect(items[0]['kind'], 'image');
+      expect(items[2]['kind'], 'video');
+      expect(items[2]['cacheRequired'], true);
+      expect(items[0].containsKey('cacheRequired'), isFalse);
+      expect(items[1]['name'], 'Name of b.jpg');
+      expect(pl['imageMs'], 12000);
+      expect(pl['transition'], 'cut');
+      expect(pl['kenBurns'], true);
+    });
+
+    test('it is sent once, not with every item', () async {
+      await start(extras: extras);
+      await phone.request('player.play', {'playlistId': 'all'});
+      await tv.waitFor((m) => m['t'] == 'display.playlist');
+      await phone.request('player.next');
+      await phone.request('player.next');
+      await tv.waitFor(
+        (m) => m['t'] == 'display.load' && m['itemId'] == 'c.mp4',
+      );
+      expect(framesOf(tv, 'display.playlist'), hasLength(1));
+      await phone.request('player.play', {'playlistId': 'two'});
+      await tv.waitFor(
+        (m) => m['t'] == 'display.playlist' && m['playlistId'] == 'two',
+      );
+      expect(framesOf(tv, 'display.playlist'), hasLength(2));
+    });
+
+    test('a failing lookup sends nothing and plays on', () async {
+      await start(extras: (_, _) async => throw StateError('db'));
+      await phone.request('player.play', {'playlistId': 'all'});
+      await tv.waitFor((m) => m['t'] == 'display.load');
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(framesOf(tv, 'display.playlist'), isEmpty);
+    });
+  });
 }
