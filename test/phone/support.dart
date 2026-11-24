@@ -141,6 +141,16 @@ class Rig {
     }
     if (library != null) {
       server.registerModule(LibraryModule(library));
+      server.registerModule(
+        PlaylistModule(
+          PlaylistStore(
+            db: db,
+            knownItemIds: () async => {
+              for (final r in await db.allLibraryItems()) r.id,
+            },
+          ),
+        ),
+      );
       settings?.changes.listen((_) => library!.announceStorage());
     }
     await server.start();

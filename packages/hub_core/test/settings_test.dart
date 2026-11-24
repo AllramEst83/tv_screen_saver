@@ -273,7 +273,7 @@ void main() {
       await upgraded.writeSettings({'imageSeconds': '15'});
       expect(await upgraded.allSettings(), {'imageSeconds': '15'});
       final v = await upgraded.customSelect('PRAGMA user_version').getSingle();
-      expect(v.read<int>('user_version'), 4);
+      expect(v.read<int>('user_version'), 5);
     });
   });
 

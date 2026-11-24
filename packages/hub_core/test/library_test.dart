@@ -968,7 +968,7 @@ void main() {
           ),
         );
         final v = await db.customSelect('PRAGMA user_version').getSingle();
-        expect(v.read<int>('user_version'), 4);
+        expect(v.read<int>('user_version'), 5);
       },
     );
   });

@@ -268,6 +268,7 @@ void main() {
       for (final label in [
         'Now playing',
         'Library',
+        'Playlists',
         'Devices',
         'Settings',
         'About',
@@ -578,6 +579,87 @@ void main() {
       expect(find.textContaining('Video'), findsOneWidget);
       expect(find.text('5 KB of 10 KB used'), findsOneWidget);
       expect(find.byKey(const Key('add-photos')), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('Playlists: create from the library, edit, delete', (
+      tester,
+    ) async {
+      tall(tester);
+      rig = (await tester.runAsync(
+        () => Rig.start(withSettings: true, withLibrary: true),
+      ))!;
+      await tester.runAsync(() async {
+        for (final n in ['One', 'Two']) {
+          await rig.db.insertLibraryItem(
+            LibraryItemsCompanion.insert(
+              id: '$n.jpg',
+              kind: 'image',
+              name: n,
+              sha256: n.padRight(64, '0'),
+              bytes: 100,
+              createdAt: DateTime.now().millisecondsSinceEpoch,
+            ),
+          );
+        }
+      });
+      await connect(tester, phone);
+      await tester.runAsync(() => until(() => phone.controller.hasLibrary));
+      await pump(tester);
+      await open(tester, 'nav-playlists');
+      expect(find.textContaining('No playlists yet'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('new-playlist')));
+      await pump(tester);
+      await tester.enterText(find.byKey(const Key('playlist-name')), 'Holiday');
+      await tester.tap(find.byKey(const Key('add-items')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('pick-Two.jpg')));
+      await tester.tap(find.byKey(const Key('pick-One.jpg')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('picked-done')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('opt-shuffle')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('save-playlist')));
+      await tester.runAsync(
+        () => until(() => phone.controller.playlists.isNotEmpty),
+      );
+      await tester.pumpAndSettle();
+
+      final p = phone.controller.playlists.single;
+      expect(p['name'], 'Holiday');
+      expect(p['items'], ['Two.jpg', 'One.jpg']); // the order they were picked
+      expect(p['shuffle'], true);
+      expect(find.text('Holiday'), findsOneWidget);
+      expect(find.text('2 items · shuffled'), findsOneWidget);
+
+      // A refused name stays on the editor with the reason.
+      await tester.tap(find.byKey(Key('playlist-${p['id']}')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('playlist-name')), '   ');
+      await tester.tap(find.byKey(const Key('save-playlist')));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('The name must be 1-60'), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('playlist-name')), 'Trip');
+      await tester.tap(find.byKey(const Key('save-playlist')));
+      await tester.runAsync(
+        () => until(() => phone.controller.playlists.single['name'] == 'Trip'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Trip'), findsOneWidget);
+
+      await tester.tap(find.byKey(Key('delete-${p['id']}')));
+      await pump(tester);
+      await tester.tap(find.byKey(const Key('confirm-delete-playlist')));
+      await tester.runAsync(
+        () => until(() => phone.controller.playlists.isEmpty),
+      );
+      await pump(tester);
+      expect(find.textContaining('No playlists yet'), findsOneWidget);
       await finish(tester);
     });
 

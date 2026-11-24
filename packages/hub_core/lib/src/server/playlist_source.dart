@@ -109,3 +109,17 @@ class StaticPlaylistSource implements PlaylistSource {
     return p == null ? null : List.of(p);
   }
 }
+
+/// `all` comes from [base]; every other id is a stored playlist.
+class StoredPlaylistSource implements PlaylistSource {
+  StoredPlaylistSource({required this.base, required this.orderedIds});
+
+  final PlaylistSource base;
+  final Future<List<String>?> Function(String id) orderedIds;
+
+  @override
+  Future<List<String>?> itemIds(String playlistId) =>
+      playlistId == kAllPlaylistId
+      ? base.itemIds(playlistId)
+      : orderedIds(playlistId);
+}

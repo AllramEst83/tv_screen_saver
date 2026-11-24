@@ -13,6 +13,8 @@ import 'server/hub_server.dart';
 import 'server/library_module.dart';
 import 'server/library_store.dart';
 import 'server/player_module.dart';
+import 'server/playlist_module.dart';
+import 'server/playlist_store.dart';
 import 'server/playlist_source.dart';
 import 'server/settings_module.dart';
 import 'server/settings_store.dart';
@@ -74,7 +76,17 @@ class PiServer {
 
   /// Until story 4-4 this is the `all` playlist: the library's videos.
   late final PlaylistSource playlists =
-      _playlists ?? LibraryPlaylistSource(library);
+      _playlists ??
+      StoredPlaylistSource(
+        base: LibraryPlaylistSource(library),
+        orderedIds: playlistStore.orderedIds,
+      );
+
+  /// Stored playlists (story 4-4).
+  late final PlaylistStore playlistStore = PlaylistStore(
+    db: db,
+    knownItemIds: () async => {for (final r in await library.items()) r.id},
+  );
   final bool _ownsDb;
   HubServer? _hub;
   HubServer get hub => _hub!;
@@ -113,6 +125,7 @@ class PiServer {
     });
     hub.registerModule(SettingsModule(settings));
     hub.registerModule(LibraryModule(library));
+    hub.registerModule(PlaylistModule(playlistStore));
     final displayModule = DisplayModule(
       db: db,
       onCapabilitiesChanged: library.capabilitiesChanged,
@@ -126,7 +139,10 @@ class PiServer {
       unplayableReason: library.unplayableReason,
     );
     hub.registerModule(player);
-    library.onItemRemoved = player.itemRemoved;
+    library.onItemRemoved = (id) async {
+      await playlistStore.forgetItem(id);
+      await player.itemRemoved(id);
+    };
     _hub = hub;
     await library.start();
     await hub.start();

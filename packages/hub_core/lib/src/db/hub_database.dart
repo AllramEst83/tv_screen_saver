@@ -129,7 +129,28 @@ class Settings extends Table {
   Set<Column> get primaryKey => {key};
 }
 
-@DriftDatabase(tables: [Devices, Pairings, LibraryItems, Uploads, Settings])
+/// A stored playlist. `items` is a JSON list of library item ids;
+/// `imageSeconds` and `transition` null mean "follow the Settings".
+@DataClassName('PlaylistRow')
+class Playlists extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  TextColumn get items => text().withDefault(const Constant('[]'))();
+  BoolColumn get shuffle => boolean().withDefault(const Constant(false))();
+  IntColumn get imageSeconds => integer().nullable()();
+  TextColumn get transition => text().nullable()();
+  BoolColumn get kenBurns => boolean().withDefault(const Constant(false))();
+  BoolColumn get muted => boolean().withDefault(const Constant(false))();
+  IntColumn get createdAt => integer()();
+  IntColumn get updatedAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@DriftDatabase(
+  tables: [Devices, Pairings, LibraryItems, Uploads, Settings, Playlists],
+)
 class HubDatabase extends _$HubDatabase {
   HubDatabase(super.e);
 
@@ -151,7 +172,7 @@ class HubDatabase extends _$HubDatabase {
   factory HubDatabase.inMemory() => HubDatabase(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -171,6 +192,9 @@ class HubDatabase extends _$HubDatabase {
       }
       if (from < 4) {
         await m.createTable(settings);
+      }
+      if (from < 5) {
+        await m.createTable(playlists);
       }
     },
     beforeOpen: (details) async {
@@ -337,13 +361,29 @@ class HubDatabase extends _$HubDatabase {
   };
 
   /// Writes [values] (key to JSON text) in one transaction.
-  Future<void> writeSettings(Map<String, String> values) => transaction(() async {
-    for (final e in values.entries) {
-      await into(settings).insertOnConflictUpdate(
-        SettingsCompanion.insert(key: e.key, value: e.value),
-      );
-    }
-  });
+  Future<void> writeSettings(Map<String, String> values) =>
+      transaction(() async {
+        for (final e in values.entries) {
+          await into(settings).insertOnConflictUpdate(
+            SettingsCompanion.insert(key: e.key, value: e.value),
+          );
+        }
+      });
+
+  // ---- Playlists ----
+
+  Future<List<PlaylistRow>> allPlaylists() => (select(
+    playlists,
+  )..orderBy([(t) => OrderingTerm.asc(t.createdAt)])).get();
+
+  Future<PlaylistRow?> playlistById(String id) =>
+      (select(playlists)..where((t) => t.id.equals(id))).getSingleOrNull();
+
+  Future<void> writePlaylist(PlaylistsCompanion row) =>
+      into(playlists).insertOnConflictUpdate(row);
+
+  Future<int> deletePlaylistRow(String id) =>
+      (delete(playlists)..where((t) => t.id.equals(id))).go();
 
   // ---- Uploads ----
 

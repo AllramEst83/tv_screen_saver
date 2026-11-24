@@ -2432,6 +2432,618 @@ class SettingsCompanion extends UpdateCompanion<SettingRow> {
   }
 }
 
+class $PlaylistsTable extends Playlists
+    with TableInfo<$PlaylistsTable, PlaylistRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PlaylistsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _itemsMeta = const VerificationMeta('items');
+  @override
+  late final GeneratedColumn<String> items = GeneratedColumn<String>(
+    'items',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('[]'),
+  );
+  static const VerificationMeta _shuffleMeta = const VerificationMeta(
+    'shuffle',
+  );
+  @override
+  late final GeneratedColumn<bool> shuffle = GeneratedColumn<bool>(
+    'shuffle',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("shuffle" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _imageSecondsMeta = const VerificationMeta(
+    'imageSeconds',
+  );
+  @override
+  late final GeneratedColumn<int> imageSeconds = GeneratedColumn<int>(
+    'image_seconds',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _transitionMeta = const VerificationMeta(
+    'transition',
+  );
+  @override
+  late final GeneratedColumn<String> transition = GeneratedColumn<String>(
+    'transition',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _kenBurnsMeta = const VerificationMeta(
+    'kenBurns',
+  );
+  @override
+  late final GeneratedColumn<bool> kenBurns = GeneratedColumn<bool>(
+    'ken_burns',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("ken_burns" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _mutedMeta = const VerificationMeta('muted');
+  @override
+  late final GeneratedColumn<bool> muted = GeneratedColumn<bool>(
+    'muted',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("muted" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    items,
+    shuffle,
+    imageSeconds,
+    transition,
+    kenBurns,
+    muted,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'playlists';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<PlaylistRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('items')) {
+      context.handle(
+        _itemsMeta,
+        items.isAcceptableOrUnknown(data['items']!, _itemsMeta),
+      );
+    }
+    if (data.containsKey('shuffle')) {
+      context.handle(
+        _shuffleMeta,
+        shuffle.isAcceptableOrUnknown(data['shuffle']!, _shuffleMeta),
+      );
+    }
+    if (data.containsKey('image_seconds')) {
+      context.handle(
+        _imageSecondsMeta,
+        imageSeconds.isAcceptableOrUnknown(
+          data['image_seconds']!,
+          _imageSecondsMeta,
+        ),
+      );
+    }
+    if (data.containsKey('transition')) {
+      context.handle(
+        _transitionMeta,
+        transition.isAcceptableOrUnknown(data['transition']!, _transitionMeta),
+      );
+    }
+    if (data.containsKey('ken_burns')) {
+      context.handle(
+        _kenBurnsMeta,
+        kenBurns.isAcceptableOrUnknown(data['ken_burns']!, _kenBurnsMeta),
+      );
+    }
+    if (data.containsKey('muted')) {
+      context.handle(
+        _mutedMeta,
+        muted.isAcceptableOrUnknown(data['muted']!, _mutedMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  PlaylistRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlaylistRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      items: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}items'],
+      )!,
+      shuffle: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}shuffle'],
+      )!,
+      imageSeconds: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}image_seconds'],
+      ),
+      transition: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}transition'],
+      ),
+      kenBurns: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}ken_burns'],
+      )!,
+      muted: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}muted'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $PlaylistsTable createAlias(String alias) {
+    return $PlaylistsTable(attachedDatabase, alias);
+  }
+}
+
+class PlaylistRow extends DataClass implements Insertable<PlaylistRow> {
+  final String id;
+  final String name;
+  final String items;
+  final bool shuffle;
+  final int? imageSeconds;
+  final String? transition;
+  final bool kenBurns;
+  final bool muted;
+  final int createdAt;
+  final int updatedAt;
+  const PlaylistRow({
+    required this.id,
+    required this.name,
+    required this.items,
+    required this.shuffle,
+    this.imageSeconds,
+    this.transition,
+    required this.kenBurns,
+    required this.muted,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['items'] = Variable<String>(items);
+    map['shuffle'] = Variable<bool>(shuffle);
+    if (!nullToAbsent || imageSeconds != null) {
+      map['image_seconds'] = Variable<int>(imageSeconds);
+    }
+    if (!nullToAbsent || transition != null) {
+      map['transition'] = Variable<String>(transition);
+    }
+    map['ken_burns'] = Variable<bool>(kenBurns);
+    map['muted'] = Variable<bool>(muted);
+    map['created_at'] = Variable<int>(createdAt);
+    map['updated_at'] = Variable<int>(updatedAt);
+    return map;
+  }
+
+  PlaylistsCompanion toCompanion(bool nullToAbsent) {
+    return PlaylistsCompanion(
+      id: Value(id),
+      name: Value(name),
+      items: Value(items),
+      shuffle: Value(shuffle),
+      imageSeconds: imageSeconds == null && nullToAbsent
+          ? const Value.absent()
+          : Value(imageSeconds),
+      transition: transition == null && nullToAbsent
+          ? const Value.absent()
+          : Value(transition),
+      kenBurns: Value(kenBurns),
+      muted: Value(muted),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory PlaylistRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlaylistRow(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      items: serializer.fromJson<String>(json['items']),
+      shuffle: serializer.fromJson<bool>(json['shuffle']),
+      imageSeconds: serializer.fromJson<int?>(json['imageSeconds']),
+      transition: serializer.fromJson<String?>(json['transition']),
+      kenBurns: serializer.fromJson<bool>(json['kenBurns']),
+      muted: serializer.fromJson<bool>(json['muted']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      updatedAt: serializer.fromJson<int>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'items': serializer.toJson<String>(items),
+      'shuffle': serializer.toJson<bool>(shuffle),
+      'imageSeconds': serializer.toJson<int?>(imageSeconds),
+      'transition': serializer.toJson<String?>(transition),
+      'kenBurns': serializer.toJson<bool>(kenBurns),
+      'muted': serializer.toJson<bool>(muted),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'updatedAt': serializer.toJson<int>(updatedAt),
+    };
+  }
+
+  PlaylistRow copyWith({
+    String? id,
+    String? name,
+    String? items,
+    bool? shuffle,
+    Value<int?> imageSeconds = const Value.absent(),
+    Value<String?> transition = const Value.absent(),
+    bool? kenBurns,
+    bool? muted,
+    int? createdAt,
+    int? updatedAt,
+  }) => PlaylistRow(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    items: items ?? this.items,
+    shuffle: shuffle ?? this.shuffle,
+    imageSeconds: imageSeconds.present ? imageSeconds.value : this.imageSeconds,
+    transition: transition.present ? transition.value : this.transition,
+    kenBurns: kenBurns ?? this.kenBurns,
+    muted: muted ?? this.muted,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  PlaylistRow copyWithCompanion(PlaylistsCompanion data) {
+    return PlaylistRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      items: data.items.present ? data.items.value : this.items,
+      shuffle: data.shuffle.present ? data.shuffle.value : this.shuffle,
+      imageSeconds: data.imageSeconds.present
+          ? data.imageSeconds.value
+          : this.imageSeconds,
+      transition: data.transition.present
+          ? data.transition.value
+          : this.transition,
+      kenBurns: data.kenBurns.present ? data.kenBurns.value : this.kenBurns,
+      muted: data.muted.present ? data.muted.value : this.muted,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlaylistRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('items: $items, ')
+          ..write('shuffle: $shuffle, ')
+          ..write('imageSeconds: $imageSeconds, ')
+          ..write('transition: $transition, ')
+          ..write('kenBurns: $kenBurns, ')
+          ..write('muted: $muted, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    name,
+    items,
+    shuffle,
+    imageSeconds,
+    transition,
+    kenBurns,
+    muted,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlaylistRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.items == this.items &&
+          other.shuffle == this.shuffle &&
+          other.imageSeconds == this.imageSeconds &&
+          other.transition == this.transition &&
+          other.kenBurns == this.kenBurns &&
+          other.muted == this.muted &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class PlaylistsCompanion extends UpdateCompanion<PlaylistRow> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<String> items;
+  final Value<bool> shuffle;
+  final Value<int?> imageSeconds;
+  final Value<String?> transition;
+  final Value<bool> kenBurns;
+  final Value<bool> muted;
+  final Value<int> createdAt;
+  final Value<int> updatedAt;
+  final Value<int> rowid;
+  const PlaylistsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.items = const Value.absent(),
+    this.shuffle = const Value.absent(),
+    this.imageSeconds = const Value.absent(),
+    this.transition = const Value.absent(),
+    this.kenBurns = const Value.absent(),
+    this.muted = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlaylistsCompanion.insert({
+    required String id,
+    required String name,
+    this.items = const Value.absent(),
+    this.shuffle = const Value.absent(),
+    this.imageSeconds = const Value.absent(),
+    this.transition = const Value.absent(),
+    this.kenBurns = const Value.absent(),
+    this.muted = const Value.absent(),
+    required int createdAt,
+    required int updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<PlaylistRow> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<String>? items,
+    Expression<bool>? shuffle,
+    Expression<int>? imageSeconds,
+    Expression<String>? transition,
+    Expression<bool>? kenBurns,
+    Expression<bool>? muted,
+    Expression<int>? createdAt,
+    Expression<int>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (items != null) 'items': items,
+      if (shuffle != null) 'shuffle': shuffle,
+      if (imageSeconds != null) 'image_seconds': imageSeconds,
+      if (transition != null) 'transition': transition,
+      if (kenBurns != null) 'ken_burns': kenBurns,
+      if (muted != null) 'muted': muted,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlaylistsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<String>? items,
+    Value<bool>? shuffle,
+    Value<int?>? imageSeconds,
+    Value<String?>? transition,
+    Value<bool>? kenBurns,
+    Value<bool>? muted,
+    Value<int>? createdAt,
+    Value<int>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return PlaylistsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      items: items ?? this.items,
+      shuffle: shuffle ?? this.shuffle,
+      imageSeconds: imageSeconds ?? this.imageSeconds,
+      transition: transition ?? this.transition,
+      kenBurns: kenBurns ?? this.kenBurns,
+      muted: muted ?? this.muted,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (items.present) {
+      map['items'] = Variable<String>(items.value);
+    }
+    if (shuffle.present) {
+      map['shuffle'] = Variable<bool>(shuffle.value);
+    }
+    if (imageSeconds.present) {
+      map['image_seconds'] = Variable<int>(imageSeconds.value);
+    }
+    if (transition.present) {
+      map['transition'] = Variable<String>(transition.value);
+    }
+    if (kenBurns.present) {
+      map['ken_burns'] = Variable<bool>(kenBurns.value);
+    }
+    if (muted.present) {
+      map['muted'] = Variable<bool>(muted.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<int>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlaylistsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('items: $items, ')
+          ..write('shuffle: $shuffle, ')
+          ..write('imageSeconds: $imageSeconds, ')
+          ..write('transition: $transition, ')
+          ..write('kenBurns: $kenBurns, ')
+          ..write('muted: $muted, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$HubDatabase extends GeneratedDatabase {
   _$HubDatabase(QueryExecutor e) : super(e);
   $HubDatabaseManager get managers => $HubDatabaseManager(this);
@@ -2440,6 +3052,7 @@ abstract class _$HubDatabase extends GeneratedDatabase {
   late final $LibraryItemsTable libraryItems = $LibraryItemsTable(this);
   late final $UploadsTable uploads = $UploadsTable(this);
   late final $SettingsTable settings = $SettingsTable(this);
+  late final $PlaylistsTable playlists = $PlaylistsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2450,6 +3063,7 @@ abstract class _$HubDatabase extends GeneratedDatabase {
     libraryItems,
     uploads,
     settings,
+    playlists,
   ];
 }
 
@@ -3690,6 +4304,305 @@ typedef $$SettingsTableProcessedTableManager =
       SettingRow,
       PrefetchHooks Function()
     >;
+typedef $$PlaylistsTableCreateCompanionBuilder =
+    PlaylistsCompanion Function({
+      required String id,
+      required String name,
+      Value<String> items,
+      Value<bool> shuffle,
+      Value<int?> imageSeconds,
+      Value<String?> transition,
+      Value<bool> kenBurns,
+      Value<bool> muted,
+      required int createdAt,
+      required int updatedAt,
+      Value<int> rowid,
+    });
+typedef $$PlaylistsTableUpdateCompanionBuilder =
+    PlaylistsCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<String> items,
+      Value<bool> shuffle,
+      Value<int?> imageSeconds,
+      Value<String?> transition,
+      Value<bool> kenBurns,
+      Value<bool> muted,
+      Value<int> createdAt,
+      Value<int> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$PlaylistsTableFilterComposer
+    extends Composer<_$HubDatabase, $PlaylistsTable> {
+  $$PlaylistsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get items => $composableBuilder(
+    column: $table.items,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get shuffle => $composableBuilder(
+    column: $table.shuffle,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get imageSeconds => $composableBuilder(
+    column: $table.imageSeconds,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get transition => $composableBuilder(
+    column: $table.transition,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get kenBurns => $composableBuilder(
+    column: $table.kenBurns,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get muted => $composableBuilder(
+    column: $table.muted,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$PlaylistsTableOrderingComposer
+    extends Composer<_$HubDatabase, $PlaylistsTable> {
+  $$PlaylistsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get items => $composableBuilder(
+    column: $table.items,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get shuffle => $composableBuilder(
+    column: $table.shuffle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get imageSeconds => $composableBuilder(
+    column: $table.imageSeconds,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get transition => $composableBuilder(
+    column: $table.transition,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get kenBurns => $composableBuilder(
+    column: $table.kenBurns,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get muted => $composableBuilder(
+    column: $table.muted,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$PlaylistsTableAnnotationComposer
+    extends Composer<_$HubDatabase, $PlaylistsTable> {
+  $$PlaylistsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get items =>
+      $composableBuilder(column: $table.items, builder: (column) => column);
+
+  GeneratedColumn<bool> get shuffle =>
+      $composableBuilder(column: $table.shuffle, builder: (column) => column);
+
+  GeneratedColumn<int> get imageSeconds => $composableBuilder(
+    column: $table.imageSeconds,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get transition => $composableBuilder(
+    column: $table.transition,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get kenBurns =>
+      $composableBuilder(column: $table.kenBurns, builder: (column) => column);
+
+  GeneratedColumn<bool> get muted =>
+      $composableBuilder(column: $table.muted, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$PlaylistsTableTableManager
+    extends
+        RootTableManager<
+          _$HubDatabase,
+          $PlaylistsTable,
+          PlaylistRow,
+          $$PlaylistsTableFilterComposer,
+          $$PlaylistsTableOrderingComposer,
+          $$PlaylistsTableAnnotationComposer,
+          $$PlaylistsTableCreateCompanionBuilder,
+          $$PlaylistsTableUpdateCompanionBuilder,
+          (
+            PlaylistRow,
+            BaseReferences<_$HubDatabase, $PlaylistsTable, PlaylistRow>,
+          ),
+          PlaylistRow,
+          PrefetchHooks Function()
+        > {
+  $$PlaylistsTableTableManager(_$HubDatabase db, $PlaylistsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PlaylistsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$PlaylistsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$PlaylistsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> items = const Value.absent(),
+                Value<bool> shuffle = const Value.absent(),
+                Value<int?> imageSeconds = const Value.absent(),
+                Value<String?> transition = const Value.absent(),
+                Value<bool> kenBurns = const Value.absent(),
+                Value<bool> muted = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PlaylistsCompanion(
+                id: id,
+                name: name,
+                items: items,
+                shuffle: shuffle,
+                imageSeconds: imageSeconds,
+                transition: transition,
+                kenBurns: kenBurns,
+                muted: muted,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                Value<String> items = const Value.absent(),
+                Value<bool> shuffle = const Value.absent(),
+                Value<int?> imageSeconds = const Value.absent(),
+                Value<String?> transition = const Value.absent(),
+                Value<bool> kenBurns = const Value.absent(),
+                Value<bool> muted = const Value.absent(),
+                required int createdAt,
+                required int updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => PlaylistsCompanion.insert(
+                id: id,
+                name: name,
+                items: items,
+                shuffle: shuffle,
+                imageSeconds: imageSeconds,
+                transition: transition,
+                kenBurns: kenBurns,
+                muted: muted,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$PlaylistsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$HubDatabase,
+      $PlaylistsTable,
+      PlaylistRow,
+      $$PlaylistsTableFilterComposer,
+      $$PlaylistsTableOrderingComposer,
+      $$PlaylistsTableAnnotationComposer,
+      $$PlaylistsTableCreateCompanionBuilder,
+      $$PlaylistsTableUpdateCompanionBuilder,
+      (
+        PlaylistRow,
+        BaseReferences<_$HubDatabase, $PlaylistsTable, PlaylistRow>,
+      ),
+      PlaylistRow,
+      PrefetchHooks Function()
+    >;
 
 class $HubDatabaseManager {
   final _$HubDatabase _db;
@@ -3704,4 +4617,6 @@ class $HubDatabaseManager {
       $$UploadsTableTableManager(_db, _db.uploads);
   $$SettingsTableTableManager get settings =>
       $$SettingsTableTableManager(_db, _db.settings);
+  $$PlaylistsTableTableManager get playlists =>
+      $$PlaylistsTableTableManager(_db, _db.playlists);
 }

@@ -99,6 +99,8 @@ class PhoneController extends ChangeNotifier {
   final Map<String, int> _itemDurations = {};
   final Map<String, Map<String, Object?>> _items = {};
   ImageUploader? _uploader;
+  final Map<String, Map<String, Object?>> _playlists = {};
+  bool _hasPlaylists = false;
   int _usedBytes = 0;
   int _capBytes = 0;
   bool _hasLibrary = false;
@@ -203,6 +205,19 @@ class PhoneController extends ChangeNotifier {
       );
     return list;
   }
+
+  /// The stored playlists, by name (case-insensitive).
+  List<Map<String, Object?>> get playlists {
+    final list = _playlists.values.toList()
+      ..sort(
+        (a, b) => '${a['name']}'.toLowerCase().compareTo(
+          '${b['name']}'.toLowerCase(),
+        ),
+      );
+    return list;
+  }
+
+  bool get hasPlaylists => _hasPlaylists;
 
   /// Owner and controller phones may add pictures.
   bool get canUpload => isLinked && me?.role != DeviceRole.display;
@@ -435,8 +450,59 @@ class PhoneController extends ChangeNotifier {
 
   // ---- player ----
 
-  /// Starts the one playlist there is until story 4-4: `all`.
+  /// Plays every video of the library (the built-in `all` playlist).
   Future<void> play() => _player('player.play', {'playlistId': 'all'});
+
+  /// Plays the stored playlist [id] from the first item.
+  Future<void> playPlaylist(String id) =>
+      _player('player.play', {'playlistId': id});
+
+  /// Creates (no [id]) or changes a playlist. A refusal names the field.
+  Future<ChangeResult> savePlaylist(
+    Map<String, Object?> fields, {
+    String? id,
+  }) async {
+    try {
+      final r = await client.request(
+        id == null ? 'playlist.create' : 'playlist.update',
+        {'id': ?id, ...fields},
+      );
+      final p = r['playlist'];
+      if (p is Map && p['id'] is String) {
+        _playlists[p['id'] as String] = Map<String, Object?>.from(p);
+        _hasPlaylists = true;
+        if (!_disposed) notifyListeners();
+      }
+      return const ChangeResult.ok();
+    } on HubError catch (e) {
+      final field = e.extra['field'];
+      return ChangeResult.failed(
+        e.message ?? 'The change was refused',
+        field: field is String ? field : null,
+      );
+    } catch (_) {
+      return const ChangeResult.failed(_unreachable);
+    }
+  }
+
+  /// Deletes a playlist (owner only); the pictures stay in the library.
+  Future<ChangeResult> deletePlaylist(String id) async {
+    try {
+      await client.request('playlist.delete', {'id': id});
+      _playlists.remove(id);
+      if (!_disposed) notifyListeners();
+      return const ChangeResult.ok();
+    } on HubError catch (e) {
+      return ChangeResult.failed(
+        e.code == HubErrorCode.forbidden
+            ? 'Only the owner can delete a playlist'
+            : (e.message ?? 'The change was refused'),
+      );
+    } catch (_) {
+      return const ChangeResult.failed(_unreachable);
+    }
+  }
+
   Future<void> next() => _player('player.next');
   Future<void> prev() => _player('player.prev');
 
@@ -563,6 +629,7 @@ class PhoneController extends ChangeNotifier {
     }
     _readSettings(modules is Map ? modules['settings'] : null);
     _readLibrary(modules is Map ? modules['library'] : null);
+    _readPlaylists(modules is Map ? modules['playlist'] : null);
     if (!_disposed) notifyListeners();
   }
 
@@ -611,6 +678,17 @@ class PhoneController extends ChangeNotifier {
         }
         _readStorage(data);
         if (!_disposed) notifyListeners();
+      case 'playlist.changed':
+        final p = data is Map ? data['playlist'] : null;
+        if (p is Map && p['id'] is String) {
+          _playlists[p['id'] as String] = Map<String, Object?>.from(p);
+          if (!_disposed) notifyListeners();
+        }
+      case 'playlist.removed':
+        final id = data is Map ? data['id'] : null;
+        if (id is String && _playlists.remove(id) != null && !_disposed) {
+          notifyListeners();
+        }
       case 'library.storage':
         _readStorage(data);
         if (!_disposed) notifyListeners();
@@ -644,6 +722,19 @@ class PhoneController extends ChangeNotifier {
                 },
           }
         : const {};
+  }
+
+  void _readPlaylists(Object? raw) {
+    _playlists.clear();
+    _hasPlaylists = false;
+    final list = raw is Map ? raw['playlists'] : null;
+    if (list is! List) return;
+    for (final p in list) {
+      if (p is Map && p['id'] is String) {
+        _playlists[p['id'] as String] = Map<String, Object?>.from(p);
+      }
+    }
+    _hasPlaylists = true;
   }
 
   void _readLibrary(Object? raw) {
@@ -694,6 +785,7 @@ class PhoneController extends ChangeNotifier {
   void _clearRemote() {
     _readSettings(null);
     _readLibrary(null);
+    _readPlaylists(null);
     _devices = const [];
   }
 

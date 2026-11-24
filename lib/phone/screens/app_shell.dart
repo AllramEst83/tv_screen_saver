@@ -5,11 +5,11 @@ import 'about_screen.dart';
 import 'devices_screen.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
+import 'playlists_screen.dart';
 import 'settings_screen.dart';
 import 'ui.dart';
 
-/// One entry of the drawer. Library and Playlists (stories 4-3 and 4-4) are
-/// added to [buildDestinations] and nothing else.
+/// One entry of the drawer; [buildDestinations] lists them in order.
 class ShellDestination {
   const ShellDestination({
     required this.id,
@@ -45,6 +45,13 @@ List<ShellDestination> buildDestinations({
     icon: Icons.photo_library_outlined,
     selectedIcon: Icons.photo_library,
     builder: (_, c) => LibraryScreen(controller: c, pick: pick),
+  ),
+  ShellDestination(
+    id: 'playlists',
+    label: 'Playlists',
+    icon: Icons.queue_music_outlined,
+    selectedIcon: Icons.queue_music,
+    builder: (_, c) => PlaylistsScreen(controller: c),
   ),
   ShellDestination(
     id: 'devices',

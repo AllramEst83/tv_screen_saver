@@ -589,7 +589,7 @@ void main() {
     });
   });
 
-  test('schema 2 database is upgraded to 4 and keeps its items', () async {
+  test('schema 2 database is upgraded to 5 and keeps its items', () async {
     final tmp = Directory.systemTemp.createTempSync('mig');
     addTearDown(() => tmp.deleteSync(recursive: true));
     final path = '${tmp.path}/v2.db';
@@ -627,7 +627,7 @@ void main() {
     expect(item.audioCodec, isNull);
     expect((await db.allDevices()).single.id, 'd1');
     final v = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(v.read<int>('user_version'), 4);
+    expect(v.read<int>('user_version'), 5);
   });
 
   group('real ffprobe and ffmpeg', () {
