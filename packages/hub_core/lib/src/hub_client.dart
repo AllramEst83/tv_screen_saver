@@ -148,8 +148,9 @@ class HubClient {
   /// is the TV; the Pi pairs it without a PIN (see `HubServer`).
   final String kind;
 
-  /// How long a fresh connection may wait for `ready`. A display the Pi wants
-  /// a phone to approve needs the Pi's whole approval window.
+  /// How long a connection without a token may wait for `ready`. A display
+  /// the Pi wants a phone to approve needs the Pi's whole approval window;
+  /// connections with a token always wait 5 s.
   final Duration handshakeTimeout;
   final HubScanner _scanner;
   final DateTime Function() _now;
@@ -283,7 +284,13 @@ class HubClient {
       _setOpenFailure(outcome);
       return false;
     }
-    final ok = await _awaitHandshake(handshakeTimeout, gen);
+    // Only a connection without a token can end up waiting for a phone to
+    // approve the display; a known token is answered at once.
+    final hasToken = token != null && token.isNotEmpty;
+    final ok = await _awaitHandshake(
+      hasToken ? const Duration(seconds: 5) : handshakeTimeout,
+      gen,
+    );
     if (!ok &&
         gen == _generation &&
         !_terminal &&

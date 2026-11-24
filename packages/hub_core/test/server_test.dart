@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:hub_core/hub_core.dart';
 import 'package:test/test.dart';
 
+import 'support/fake_phone_harness.dart';
+
 void main() {
   late Directory tmp;
   late PiServer server;
@@ -493,4 +495,28 @@ void main() {
     expect(constantTimeEquals('abc', 'abcd'), isFalse);
     expect(constantTimeEquals('', ''), isTrue);
   });
+
+  test(
+    'PiServer: play all reaches the display with a file of the media dir',
+    () async {
+      // `tmp` holds clip, pic.png and friends; add the video the playlist uses.
+      File('${tmp.path}/movie.mp4').writeAsBytesSync([1, 2, 3]);
+      final tv = await TestPhone.connect(server.port);
+      final phone = await TestPhone.connect(server.port);
+      addTearDown(() async {
+        await tv.close();
+        await phone.close();
+      });
+      await tv.helloAsDisplay();
+      server.hub.openPairingSession();
+      await phone.pairWithQr(server.hub.currentQrUri('127.0.0.1')!);
+      server.hub.closePairingSession();
+
+      final reply = await phone.request('player.play', {'playlistId': 'all'});
+      expect(reply['t'], HubMsg.ok, reason: '$reply');
+      final load = await tv.waitFor((m) => m['t'] == 'display.load');
+      expect(load['itemId'], 'movie.mp4');
+      expect(File('${tmp.path}/${load['itemId']}').existsSync(), isTrue);
+    },
+  );
 }

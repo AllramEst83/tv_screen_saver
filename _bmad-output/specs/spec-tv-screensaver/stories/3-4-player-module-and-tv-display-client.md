@@ -2,7 +2,7 @@
 title: 'Player module and TV display client'
 type: 'feature'
 created: '2026-11-24'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '2bd69168ef6f52f5d1b37603420466ebb377812e'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -63,11 +63,11 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `hub_core` -- `PlaylistSource`, `player` and `display` modules, registration, `HubClient` display kind
-- [ ] `hub_core/test` -- every matrix row at module level (fake display, two phones, no display)
+- [x] `hub_core` -- `PlaylistSource`, `player` and `display` modules, registration, `HubClient` display kind
+- [x] `hub_core/test` -- every matrix row at module level (fake display, two phones, no display)
 - [ ] Android native -- pause/resume/seek/mute and item-ended in the Media3 channel
-- [ ] `lib/tv/display/`, `lib/main_tv.dart` -- display client, pairing screen, player bridge, remote keys
-- [ ] `lib/phone/` -- controls, now playing, unavailable state
+- [x] `lib/tv/display/`, `lib/main_tv.dart` -- display client, pairing screen, player bridge, remote keys
+- [x] `lib/phone/` -- controls, now playing, unavailable state
 - [ ] Flutter tests for TV client and phone controls; docs
 
 **Acceptance Criteria:**
@@ -77,9 +77,31 @@ context:
 
 ## Implementation Notes
 
+- Additions to the frozen intent: `player.ended {itemId}` (answers `{moved}`), `display.control stop`, `display.changed`, `muted` and `durationMs` fields, phone Approve-this-TV dialog, TV Menu Left shows a pairing code. The `all` playlist is video-only (mp4 m4v mov mkv webm ts) until 4-x adds images. Pi pauses a player when its display leaves; a reconnect report is adopted only if no command arrived since. APK sizes: TV 19,769,936 / phone 67,955,834 bytes. Manual check on the real TV, phone and Pi is still open, including hold-Back 10 s on the Sony remote.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+| Finding | Verdict | Route | Evidence |
+| --- | --- | --- | --- |
+| `player.ended` returns ok when the Pi ignored it (stale item, empty playlist); TV freezes on last frame and never shows idle | high | patch | Both hunters; `_ended` returns plain ok, no stop frame |
+| Opening the TV Menu releases the player; return resumes at a stale position, phones run ahead; Menu key twice before the await pushes two routes; Back-hold state not reset on focus loss | medium | patch | `_openMenu` awaits `viewDisposed()` before `_menuOpen`; no elapsed-time compensation |
+| Pi player stays `playing` with a running clock when the display leaves; TV report after reconnect can overwrite a newer Pi-side command | medium | patch | `onPresenceChanged` only prunes forgotten displays; `_report` ignores shield |
+| First position report inside the 2.5 s shield is dropped, phones run ahead up to 10 s | medium | patch | Shield ends after the first report; next report is 10 s later |
+| `devices.startPairing` failure never retried; `display.load` without token silently dropped; capabilities call can hang forever | medium | patch | Reported by edge hunter; no retry timers or timeout |
+| `MediaDirPlaylistSource` takes junk files (.part, .txt, .json), case-sensitive sort, listing error returns empty | medium | patch | Only dot files and `.bin` excluded |
+| No phone UI for `devices.approvalRequested`; TV shows no hint while waiting 125 s; handshake timeout may apply to every fresh connection | medium | patch | Grep: no approveDisplay in `lib/`; implementer to confirm timeout scope |
+| Hold-Back-10-s forget-all has no countdown or result feedback | low | patch | Error swallowed by `_quiet` |
+| Kotlin `m3Control` seek/mute missing args silently default; ExoPlayer has no connect/read timeout | low | patch | VideoSpike.kt |
+| Presence handling in DisplayModule can finish out of order | low | patch | Overlapping `await db.displays()` |
+| Bare `catch (_)` in the display client with no log | low | patch | No debug output for `adb logcat -s flutter` |
+| Missing tests: real PiServer with player/display, ChannelDisplayNative channel contract, position ticker, QR data, phone display.changed, new patches | medium | patch | Verification-gap evidence; greps confirmed |
+| Stale docs (pi_config, size delta, frozen-intent additions not logged) | low | patch (docs) | Implementation Notes empty |
+| Phone progress bar / total time / seek slider | low | defer | Not in intent; durationMs available for a later story |
+| Kotlin unit tests | low | defer | No Kotlin test setup |
+| `HubClient.kind` free string, `_lastChanged` dead code, report index ignored, `type$N` HDR names, 128x256 caps limit, `_finished` failed-item branch untested | low | reject | No named harm |
+| Import order lint, `hub_server.dart` untouched vs Code Map, story bookkeeping | false | reject | `flutter analyze` is clean; workflow updates the story after review |
 
 ## Verification
 

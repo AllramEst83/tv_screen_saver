@@ -18,6 +18,14 @@ enum QrOutcome {
   started,
 }
 
+/// A TV that waits for a phone to approve it (`devices.approvalRequested`).
+class PendingApproval {
+  const PendingApproval(this.requestId, this.name);
+
+  final String requestId;
+  final String name;
+}
+
 /// Phone-side state over [HubClient]: which screen to show, the paired device
 /// list, the Wi-Fi multicast lock and the saved pairing.
 class PhoneController extends ChangeNotifier {
@@ -50,6 +58,7 @@ class PhoneController extends ChangeNotifier {
   bool? _displayOnline;
   bool _tvNotConnected = false;
   String? _playerError;
+  PendingApproval? _approval;
 
   HubClientState get hub => client.state.value;
 
@@ -68,6 +77,9 @@ class PhoneController extends ChangeNotifier {
   /// The Pi has no TV connected: the last command got `unavailable`, or the
   /// `display` module says so.
   bool get tvNotConnected => _tvNotConnected || _displayOnline == false;
+
+  /// A new TV asks to be let in; the Home screen shows "Approve this TV?".
+  PendingApproval? get pendingApproval => _approval;
 
   /// The message of the last player command that failed for another reason.
   String? get playerError => _playerError;
@@ -183,6 +195,23 @@ class PhoneController extends ChangeNotifier {
   }
 
   void submitPin(String pin) => client.submitPin(pin);
+
+  /// Answers the pending TV: Approve sends `devices.approveDisplay`; Deny
+  /// only dismisses it (the Pi lets the request time out).
+  Future<void> answerApproval(bool approve) async {
+    final a = _approval;
+    _approval = null;
+    if (!_disposed) notifyListeners();
+    if (!approve || a == null) return;
+    try {
+      await client.request('devices.approveDisplay', {
+        'requestId': a.requestId,
+      });
+    } on HubError catch (e) {
+      _playerError = e.message ?? e.code;
+      if (!_disposed) notifyListeners();
+    } catch (_) {}
+  }
 
   // ---- player ----
 
@@ -305,6 +334,21 @@ class PhoneController extends ChangeNotifier {
   }
 
   void _onEvent(Map<String, dynamic> ev) {
+    if (ev['t'] == 'devices.approvalRequested') {
+      final id = ev['requestId'];
+      if (id is String && id.isNotEmpty) {
+        _approval = PendingApproval(id, '${ev['name'] ?? 'TV'}');
+        if (!_disposed) notifyListeners();
+      }
+      return;
+    }
+    if (ev['t'] == 'devices.approvalCancelled') {
+      if (_approval?.requestId == ev['requestId']) {
+        _approval = null;
+        if (!_disposed) notifyListeners();
+      }
+      return;
+    }
     final data = ev['data'];
     switch (ev['kind']) {
       case 'devices.changed':

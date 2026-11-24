@@ -29,6 +29,13 @@ class _Player {
   /// Position reports from the TV are ignored until then, so a stale one that
   /// was already on the wire cannot undo a seek.
   int ignorePositionUntil = 0;
+
+  /// The display is connected right now.
+  bool online = true;
+
+  /// A phone or remote command changed the state since the display last
+  /// connected: its `player.report` is then out of date.
+  bool commandSinceConnect = false;
 }
 
 /// The `player` module: one player per display id.
@@ -50,6 +57,10 @@ class _Player {
 /// Event `player.changed {playlistId, index, itemId, state, positionMs,
 /// startedAt, muted}`. Every command also sends the display a targeted
 /// `display.load` (item changes) or `display.control` (everything else).
+///
+/// While the display is away the player is paused at its last position. When
+/// it comes back its report is adopted only if no command arrived in between;
+/// otherwise the Pi answers `adopted: false` and tells the TV what to show.
 class PlayerModule implements HubModule {
   PlayerModule({
     required this.db,
@@ -109,7 +120,9 @@ class PlayerModule implements HubModule {
     if (displayId == null) {
       throw const HubError(HubErrorCode.unavailable, 'TV not connected');
     }
-    return body(displayId, _players.putIfAbsent(displayId, _Player.new));
+    final p = _players.putIfAbsent(displayId, _Player.new);
+    p.commandSinceConnect = true;
+    return body(displayId, p);
   });
 
   void _requireDisplay(HubCall call) {
@@ -328,6 +341,10 @@ class PlayerModule implements HubModule {
       throw const HubError(HubErrorCode.invalid, 'state is invalid');
     }
     final p = _playerOf(call);
+    if (p.commandSinceConnect) {
+      _reconcile(call.device.id, p);
+      return {'adopted': false};
+    }
     final itemId = call.args['itemId'];
     if (itemId == null || state == PlayerState.idle) {
       // The TV shows nothing: the Pi forgets what it thought was playing.
@@ -369,6 +386,24 @@ class PlayerModule implements HubModule {
     return {'adopted': true};
   });
 
+  /// The TV's report is older than a command: put the TV right.
+  void _reconcile(String displayId, _Player p) {
+    final item = p.itemId;
+    if (item == null) {
+      display.sendControl(displayId, action: 'stop');
+      return;
+    }
+    display.sendLoad(
+      displayId,
+      itemId: item,
+      startAt: _positionNow(p),
+      muted: p.muted,
+    );
+    if (p.state == PlayerState.paused) {
+      display.sendControl(displayId, action: 'pause', positionMs: p.positionMs);
+    }
+  }
+
   Future<Object?> _ended(HubCall call) => _serialized(() async {
     _requireDisplay(call);
     final itemId = call.args['itemId'];
@@ -377,7 +412,7 @@ class PlayerModule implements HubModule {
     }
     final p = _playerOf(call);
     // A duplicate or late `ended` must not skip an item.
-    if (p.itemId != itemId || p.playlistId == null) return null;
+    if (p.itemId != itemId || p.playlistId == null) return {'moved': false};
     final ids = await playlists.itemIds(p.playlistId!);
     if (ids == null || ids.isEmpty) {
       p
@@ -386,10 +421,11 @@ class PlayerModule implements HubModule {
         ..positionMs = 0
         ..startedAt = null;
       _emitChanged(p);
-      return null;
+      display.sendControl(call.device.id, action: 'stop');
+      return {'moved': false};
     }
     _startItem(call.device.id, p, p.playlistId!, ids, _stepIndex(p, ids, 1));
-    return null;
+    return {'moved': true};
   });
 
   // ---- module plumbing ----
@@ -402,15 +438,33 @@ class PlayerModule implements HubModule {
   }
 
   @override
-  Future<void> onPresenceChanged(Set<String> onlineDeviceIds) async {
-    if (_disposed) return;
-    try {
-      final known = {for (final r in await db.displays()) r.id};
-      _players.removeWhere((key, _) => !known.contains(key));
-    } catch (_) {
-      // The database may already be closed while the server stops.
-    }
-  }
+  Future<void> onPresenceChanged(Set<String> onlineDeviceIds) =>
+      _serialized(() async {
+        if (_disposed) return;
+        try {
+          final known = {for (final r in await db.displays()) r.id};
+          _players.removeWhere((key, _) => !known.contains(key));
+        } catch (_) {
+          // The database may already be closed while the server stops.
+        }
+        for (final e in _players.entries) {
+          final p = e.value;
+          final on = onlineDeviceIds.contains(e.key);
+          if (p.online && !on) {
+            // The TV left: freeze the clock instead of letting it run.
+            if (p.state == PlayerState.playing) {
+              p
+                ..positionMs = _positionNow(p)
+                ..state = PlayerState.paused
+                ..startedAt = null;
+              _emitChanged(p);
+            }
+          } else if (!p.online && on) {
+            p.commandSinceConnect = false;
+          }
+          p.online = on;
+        }
+      });
 
   @override
   Future<void> dispose() async {

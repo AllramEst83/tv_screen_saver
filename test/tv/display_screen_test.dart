@@ -24,6 +24,7 @@ class RecordingDisplayClient extends DisplayClient {
 
   final List<String> log = [];
   bool pairingWanted = false;
+  bool forgetOk = true;
   PairingInfo? pairingInfo;
 
   @override
@@ -48,7 +49,10 @@ class RecordingDisplayClient extends DisplayClient {
   Future<void> seekBy(int deltaMs) async => log.add('seek:$deltaMs');
 
   @override
-  Future<void> forgetAllPhones() async => log.add('forgetAll');
+  Future<bool> forgetAllPhones() async {
+    log.add('forgetAll');
+    return forgetOk;
+  }
 
   @override
   void pairAnotherPhone() => log.add('pairAnother');
@@ -143,6 +147,10 @@ void main() {
       );
     await pumpScreen(tester);
     expect(find.byKey(const Key('pairing-qr')), findsOneWidget);
+    expect(
+      tester.widget<QrCodeView>(find.byKey(const Key('pairing-qr'))).data,
+      client.pairingInfo!.qr,
+    );
     expect(find.text('4821'), findsOneWidget);
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     expect(client.log, isEmpty);
@@ -187,5 +195,53 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(TvMenuScreen), findsNothing);
     expect(find.byKey(const Key('fake-video')), findsOneWidget);
+  });
+
+  testWidgets('a held Back shows a countdown from 3 s and the result', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.escape);
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.byKey(const Key('back-countdown')), findsNothing);
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.byKey(const Key('back-countdown')), findsOneWidget);
+    expect(find.textContaining('6 s'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 7));
+    expect(client.log, ['forgetAll']);
+    expect(find.byKey(const Key('back-countdown')), findsNothing);
+    expect(find.byKey(const Key('display-notice')), findsOneWidget);
+    expect(find.textContaining('forgotten'), findsOneWidget);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.escape);
+    await tester.pump(const Duration(seconds: 6)); // the notice goes
+    expect(find.byKey(const Key('display-notice')), findsNothing);
+  });
+
+  testWidgets('a failed forgetAll says so', (tester) async {
+    client.forgetOk = false;
+    await pumpScreen(tester);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.escape);
+    await tester.pump(const Duration(seconds: 11));
+    expect(find.textContaining('Could not forget'), findsOneWidget);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.escape);
+    await tester.pump(const Duration(seconds: 6));
+  });
+
+  testWidgets('opening the menu drops a Back press in progress', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.escape);
+    await tester.pump(const Duration(seconds: 1));
+    // Two Menu presses in a row open one menu.
+    await tester.sendKeyEvent(LogicalKeyboardKey.contextMenu);
+    await tester.sendKeyEvent(LogicalKeyboardKey.contextMenu);
+    await tester.pumpAndSettle();
+    expect(find.byType(TvMenuScreen), findsOneWidget);
+    // The hold never completes behind the menu.
+    await tester.pump(const Duration(seconds: 15));
+    expect(client.log, isNot(contains('forgetAll')));
+    expect(native.calls.where((c) => c == 'release'), hasLength(1));
   });
 }

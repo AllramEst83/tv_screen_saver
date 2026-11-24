@@ -16,44 +16,57 @@ abstract interface class PlaylistSource {
 
 final _servableId = RegExp(r'^[A-Za-z0-9._-]+$');
 
-/// Extensions that are in the media directory but are not media: the 1 GiB
-/// throughput test file of story 2-3.
-const _skippedExtensions = {'.bin'};
+/// The video files the TV can stream (lower case, with the dot).
+const _videoExtensions = {'.mp4', '.m4v', '.mov', '.mkv', '.webm', '.ts'};
 
-/// The `all` playlist: the files of the Pi media directory, sorted by name.
+/// The `all` playlist: the video files of the Pi media directory, sorted by
+/// name (ignoring case).
 ///
 /// Reads the directory on every call, so a file added or removed shows up at
-/// the next command. Hidden files, sub-directories, links and names the media
-/// route would refuse are skipped.
+/// the next command. Hidden files, sub-directories, links, names the media
+/// route would refuse and files that are not video are skipped. If the
+/// directory cannot be listed the last good result is returned (the error is
+/// thrown when there is none yet), so a hiccup never empties the playlist.
 class MediaDirPlaylistSource implements PlaylistSource {
-  MediaDirPlaylistSource(this.mediaDir);
+  MediaDirPlaylistSource(
+    this.mediaDir, {
+    Stream<FileSystemEntity> Function(Directory dir)? list,
+  }) : _list = list ?? ((d) => d.list(followLinks: false));
 
   final String mediaDir;
+  final Stream<FileSystemEntity> Function(Directory dir) _list;
+  List<String>? _last;
 
   @override
   Future<List<String>?> itemIds(String playlistId) async {
     if (playlistId != kAllPlaylistId) return null;
     final dir = Directory(mediaDir);
-    if (!await dir.exists()) return const [];
     final names = <String>[];
     try {
-      await for (final e in dir.list(followLinks: false)) {
+      if (!await dir.exists()) return _last = const [];
+      await for (final e in _list(dir)) {
         if (e is! File) continue;
         final segments = e.uri.pathSegments.where((s) => s.isNotEmpty);
         if (segments.isEmpty) continue;
         final name = segments.last;
         if (name.startsWith('.') || !_servableId.hasMatch(name)) continue;
         final dot = name.lastIndexOf('.');
-        if (dot > 0 && _skippedExtensions.contains(name.substring(dot))) {
+        if (dot <= 0 ||
+            !_videoExtensions.contains(name.substring(dot).toLowerCase())) {
           continue;
         }
         names.add(name);
       }
     } on FileSystemException {
-      return const [];
+      final last = _last;
+      if (last != null) return List.of(last);
+      rethrow;
     }
-    names.sort();
-    return names;
+    names.sort((a, b) {
+      final c = a.toLowerCase().compareTo(b.toLowerCase());
+      return c != 0 ? c : a.compareTo(b);
+    });
+    return _last = names;
   }
 }
 

@@ -74,6 +74,21 @@ void main() {
   });
   tearDown(() => rig.dispose());
 
+  /// The TV drops and returns with its token.
+  Future<TestPhone> reconnectTv() async {
+    final token = tv.token;
+    await tv.close();
+    await until(() => rig.displayModule!.onlineDisplayId == null);
+    final again = await rig.connectDisplay();
+    again.sendDisplayHello(withToken: token);
+    await again.expectType(HubMsg.ready);
+    again
+      ..token = token
+      ..deviceId = tv.deviceId;
+    await until(() => rig.displayModule!.onlineDisplayId != null);
+    return again;
+  }
+
   group('player commands', () {
     test('play from a phone: changed to all, display.load to the TV', () async {
       final second = await rig.onboardPhone('Second');
@@ -318,7 +333,8 @@ void main() {
       await tv.waitFor((m) => m['t'] == 'display.load');
       await phone.waitFor(isChanged);
 
-      await expectOk(tv.request('player.ended', {'itemId': 'c.mp4'}));
+      final moved = await tv.request('player.ended', {'itemId': 'c.mp4'});
+      expect((moved['result'] as Map)['moved'], true);
       final d = dataOf(await phone.waitFor(isChanged));
       expect(d['index'], 0);
       expect(d['itemId'], 'a.mp4');
@@ -332,9 +348,12 @@ void main() {
     test('a duplicate or stale ended does not skip an item', () async {
       await expectOk(phone.request('player.play', {'playlistId': 'all'}));
       await tv.waitFor((m) => m['t'] == 'display.load');
-      await expectOk(tv.request('player.ended', {'itemId': 'a.mp4'}));
-      await expectOk(tv.request('player.ended', {'itemId': 'a.mp4'}));
-      await expectOk(tv.request('player.ended', {'itemId': 'zzz.mp4'}));
+      final first = await tv.request('player.ended', {'itemId': 'a.mp4'});
+      expect((first['result'] as Map)['moved'], true);
+      for (final id in ['a.mp4', 'zzz.mp4']) {
+        final r = await tv.request('player.ended', {'itemId': id});
+        expect((r['result'] as Map)['moved'], false);
+      }
       await until(() => framesOf(tv, 'display.load').length >= 2);
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(framesOf(tv, 'display.load').map((m) => m['itemId']).toList(), [
@@ -349,13 +368,18 @@ void main() {
       source.playlists['all'] = [];
       await expectErr(phone.request('player.next'), HubErrorCode.notFound);
 
-      await expectOk(tv.request('player.ended', {'itemId': 'a.mp4'}));
+      final r = await tv.request('player.ended', {'itemId': 'a.mp4'});
+      expect((r['result'] as Map)['moved'], false);
       final d = dataOf(
         await phone.waitFor(
           (m) => isChanged(m) && dataOf(m)['state'] == 'idle',
         ),
       );
       expect(d['itemId'], isNull);
+      final stop = await tv.waitFor(
+        (m) => m['t'] == 'display.control' && m['action'] == 'stop',
+      );
+      expect(stop['action'], 'stop');
     });
 
     test('next after the current item was removed takes its place', () async {
@@ -457,6 +481,8 @@ void main() {
       () async {
         await expectOk(phone.request('player.play', {'playlistId': 'all'}));
         await phone.waitFor(isChanged);
+        // The TV drops and returns: no command since, so its report counts.
+        tv = await reconnectTv();
         final before = framesOf(phone, HubMsg.event).where(isChanged).length;
 
         final stale = await tv.request('player.report', {
@@ -497,6 +523,73 @@ void main() {
         );
       },
     );
+
+    test('while the TV is away the player pauses at its position', () async {
+      await expectOk(phone.request('player.play', {'playlistId': 'all'}));
+      await phone.waitFor(isChanged);
+      rig.clock.advance(const Duration(seconds: 8));
+      await tv.close();
+      final d = dataOf(
+        await phone.waitFor(
+          (m) => isChanged(m) && dataOf(m)['state'] == 'paused',
+        ),
+      );
+      expect(d['positionMs'], 8000);
+      expect(d['startedAt'], isNull);
+      // The clock no longer runs.
+      rig.clock.advance(const Duration(minutes: 5));
+      expect(playerOf(await snapshotOf(phone))['positionMs'], 8000);
+    });
+
+    test('a report that is older than a command is not adopted', () async {
+      await expectOk(phone.request('player.play', {'playlistId': 'all'}));
+      await tv.waitFor((m) => m['t'] == 'display.load');
+      await phone.waitFor(isChanged);
+      await expectOk(phone.request('player.pause'));
+      await phone.waitFor(
+        (m) => isChanged(m) && dataOf(m)['state'] == 'paused',
+      );
+
+      final r = await tv.request('player.report', {
+        'playlistId': 'all',
+        'index': 2,
+        'itemId': 'c.mp4',
+        'state': 'playing',
+        'positionMs': 5000,
+      });
+      expect((r['result'] as Map)['adopted'], false);
+      // The TV is told to show what the Pi has: a.mp4, paused.
+      final load = await tv.waitFor(
+        (m) =>
+            m['t'] == 'display.load' &&
+            m['itemId'] == 'a.mp4' &&
+            framesOf(tv, 'display.load').length >= 2,
+      );
+      expect(load['t'], 'display.load');
+      final pause = await tv.waitFor(
+        (m) => m['t'] == 'display.control' && m['action'] == 'pause',
+      );
+      expect(pause['action'], 'pause');
+      expect(playerOf(await snapshotOf(phone))['itemId'], 'a.mp4');
+    });
+
+    test('the position shield ends exactly 2.5 s after the command', () async {
+      await expectOk(phone.request('player.play', {'playlistId': 'all'}));
+      await tv.waitFor((m) => m['t'] == 'display.load');
+
+      rig.clock.advance(const Duration(milliseconds: 2499));
+      await expectOk(
+        tv.request('player.position', {'itemId': 'a.mp4', 'positionMs': 100}),
+      );
+      // Dropped: the Pi still counts from the play command.
+      expect(playerOf(await snapshotOf(phone))['positionMs'], 2499);
+
+      rig.clock.advance(const Duration(milliseconds: 1));
+      await expectOk(
+        tv.request('player.position', {'itemId': 'a.mp4', 'positionMs': 100}),
+      );
+      expect(playerOf(await snapshotOf(phone))['positionMs'], 100);
+    });
 
     test('phones cannot send display-only messages', () async {
       for (final type in [
@@ -579,31 +672,65 @@ void main() {
   });
 
   group('MediaDirPlaylistSource', () {
-    test(
-      'all is the media directory sorted by name; others are unknown',
-      () async {
-        final dir = Directory.systemTemp.createTempSync('playlist_src');
-        addTearDown(() => dir.deleteSync(recursive: true));
-        for (final n in [
-          'b.mp4',
-          'a.mp4',
-          'C.mp4',
-          '.hidden',
-          'throughput-1g.bin',
-        ]) {
-          File('${dir.path}/$n').writeAsStringSync('x');
-        }
-        Directory('${dir.path}/sub').createSync();
-        File('${dir.path}/has space.mp4').writeAsStringSync('x');
+    test('all is the video files sorted by name, ignoring case', () async {
+      final dir = Directory.systemTemp.createTempSync('playlist_src');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      for (final n in [
+        'b.mp4',
+        'a.MKV',
+        'C.mov',
+        '.hidden.mp4',
+        'throughput-1g.bin',
+        'notes.txt',
+        'noext',
+        'd.webm',
+        'e.ts',
+        'f.m4v',
+        'has space.mp4',
+      ]) {
+        File('${dir.path}/$n').writeAsStringSync('x');
+      }
+      Directory('${dir.path}/sub.mp4').createSync();
 
-        final src = MediaDirPlaylistSource(dir.path);
-        expect(await src.itemIds('all'), ['C.mp4', 'a.mp4', 'b.mp4']);
-        expect(await src.itemIds('other'), isNull);
-        expect(
-          await MediaDirPlaylistSource('${dir.path}/missing').itemIds('all'),
-          isEmpty,
-        );
-      },
-    );
+      final src = MediaDirPlaylistSource(dir.path);
+      expect(await src.itemIds('all'), [
+        'a.MKV',
+        'b.mp4',
+        'C.mov',
+        'd.webm',
+        'e.ts',
+        'f.m4v',
+      ]);
+      expect(await src.itemIds('other'), isNull);
+      expect(
+        await MediaDirPlaylistSource('${dir.path}/missing').itemIds('all'),
+        isEmpty,
+      );
+    });
+
+    test('a listing error returns the last result, or throws first', () async {
+      final dir = Directory.systemTemp.createTempSync('playlist_err');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      File('${dir.path}/a.mp4').writeAsStringSync('x');
+      var fail = false;
+      final src = MediaDirPlaylistSource(
+        dir.path,
+        list: (d) => fail
+            ? Stream.error(const FileSystemException('boom'))
+            : d.list(followLinks: false),
+      );
+      expect(await src.itemIds('all'), ['a.mp4']);
+      fail = true;
+      expect(await src.itemIds('all'), ['a.mp4']);
+
+      final fresh = MediaDirPlaylistSource(
+        dir.path,
+        list: (_) => Stream.error(const FileSystemException('boom')),
+      );
+      await expectLater(
+        fresh.itemIds('all'),
+        throwsA(isA<FileSystemException>()),
+      );
+    });
   });
 }

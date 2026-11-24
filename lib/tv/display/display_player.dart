@@ -42,7 +42,9 @@ class DisplayPlayer {
     this.positionInterval = const Duration(seconds: 10),
     this.statsInterval = const Duration(seconds: 1),
     this.errorRetry = const Duration(seconds: 3),
-  }) {
+    this.anchorDelay = const Duration(seconds: 3),
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now {
     native.onEnded = _onNativeEnded;
   }
 
@@ -61,6 +63,12 @@ class DisplayPlayer {
   /// How long a failing item is shown before the Pi is asked to move on.
   final Duration errorRetry;
 
+  /// After a load or seek one more position goes to the Pi this much later:
+  /// the Pi drops reports for 2.5 s after its own command, so the first one
+  /// can be lost.
+  final Duration anchorDelay;
+  final DateTime Function() _now;
+
   String? _itemId;
   String? _url;
   Map<String, String> _headers = const {};
@@ -76,6 +84,10 @@ class DisplayPlayer {
   Timer? _statsTimer;
   Timer? _positionTimer;
   Timer? _errorTimer;
+  Timer? _anchorTimer;
+
+  /// When the picture was released for the menu (null while it is shown).
+  DateTime? _releasedAt;
 
   String? get itemId => _itemId;
   bool get hasItem => _itemId != null;
@@ -115,6 +127,7 @@ class DisplayPlayer {
     _positionMs = startAtMs;
     _durationMs = null;
     await _open(startAtMs);
+    _scheduleAnchor();
   }
 
   /// `display.control`.
@@ -130,6 +143,18 @@ class DisplayPlayer {
         if (positionMs == null || _itemId == null) return;
         _positionMs = positionMs;
         await native.seek(positionMs);
+        _scheduleAnchor();
+      case 'stop':
+        // The Pi has nothing to play: show nothing.
+        _itemId = null;
+        _url = null;
+        _playing = false;
+        _positionMs = 0;
+        _durationMs = null;
+        _loadSeq++;
+        _stopTimers();
+        await native.release();
+        return;
       case 'mute':
         if (muted == null) return;
         _muted = muted;
@@ -144,7 +169,18 @@ class DisplayPlayer {
   Future<void> viewCreated() async {
     _viewReady = true;
     if (_itemId != null && _url != null && !_disposed) {
-      await _open(_positionMs);
+      var start = _positionMs;
+      final released = _releasedAt;
+      _releasedAt = null;
+      if (_playing && released != null) {
+        // The clip would have run on while the menu was open.
+        start += _now().difference(released).inMilliseconds;
+        final dur = _durationMs;
+        if (dur != null && start > dur) start = dur;
+      }
+      _positionMs = start;
+      await _open(start);
+      _sendPosition();
     }
   }
 
@@ -153,6 +189,7 @@ class DisplayPlayer {
   Future<void> viewDisposed() async {
     _viewReady = false;
     await _readStats();
+    _releasedAt = _now();
     _stopTimers();
     await native.release();
   }
@@ -197,6 +234,14 @@ class DisplayPlayer {
     }
   }
 
+  void _scheduleAnchor() {
+    _anchorTimer?.cancel();
+    _anchorTimer = Timer(anchorDelay, () async {
+      await _readStats();
+      _sendPosition();
+    });
+  }
+
   void _sendPosition() {
     if (_itemId == null || _disposed) return;
     reportPosition?.call(snapshot);
@@ -234,6 +279,8 @@ class DisplayPlayer {
     _positionTimer = null;
     _errorTimer?.cancel();
     _errorTimer = null;
+    _anchorTimer?.cancel();
+    _anchorTimer = null;
   }
 
   Future<void> dispose() async {

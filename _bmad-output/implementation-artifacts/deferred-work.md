@@ -20,3 +20,10 @@
 - source_spec: `_bmad-output/specs/spec-tv-screensaver/stories/3-3-phone-app-skeleton.md`
   summary: Give each phone a distinguishable client name (device model or user-chosen) instead of "Phone", and allow rename.
   evidence: Every phone connects as clientName "Phone", so the paired-devices list shows identical entries with several phones.
+
+- source_spec: `_bmad-output/specs/spec-tv-screensaver/stories/3-4-player-module-and-tv-display-client.md`
+  summary: Phone Now Playing: progress bar, total time and seek slider using durationMs from the Pi.
+  evidence: The card shows only a timer and fixed +/-30 s seek; the user cannot see that a seek will clamp.
+- source_spec: `_bmad-output/specs/spec-tv-screensaver/stories/3-4-player-module-and-tv-display-client.md`
+  summary: Kotlin-side tests for m3OpenItem, m3Control and item-ended.
+  evidence: Dart tests use a fake native; the Dart/Kotlin contract is covered only by a channel-mock test and the manual TV check.

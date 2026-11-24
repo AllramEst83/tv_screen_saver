@@ -46,26 +46,74 @@ class DisplayScreen extends StatefulWidget {
   State<DisplayScreen> createState() => _DisplayScreenState();
 }
 
-class _DisplayScreenState extends State<DisplayScreen> {
+class _DisplayScreenState extends State<DisplayScreen>
+    with WidgetsBindingObserver {
   bool _menuOpen = false;
   Timer? _backTimer;
   bool _backFired = false;
   bool _backDown = false;
+
+  /// Seconds Back has been held (a one-second clock while it is down).
+  int _heldSeconds = 0;
+  Timer? _holdClock;
+
+  /// What `devices.forgetAll` did, shown for a few seconds.
+  String? _notice;
+  Timer? _noticeTimer;
 
   DisplayClient get _client => widget.client;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _client.addListener(_onChanged);
     unawaited(_client.start());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _backTimer?.cancel();
+    _holdClock?.cancel();
+    _noticeTimer?.cancel();
     _client.removeListener(_onChanged);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // A key-up that never arrives must not leave Back "held".
+    _resetBack();
+  }
+
+  /// Forgets a Back press in progress (menu opened, focus or app lost).
+  void _resetBack() {
+    _backTimer?.cancel();
+    _backTimer = null;
+    _holdClock?.cancel();
+    _holdClock = null;
+    _backDown = false;
+    _heldSeconds = 0;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _forgetAll() async {
+    final ok = await _client.forgetAllPhones();
+    if (!mounted) return;
+    _showNotice(
+      ok
+          ? 'All phones forgotten. Pair a phone with the code.'
+          : 'Could not forget the phones. Is the Pi reachable?',
+    );
+  }
+
+  void _showNotice(String text) {
+    _noticeTimer?.cancel();
+    setState(() => _notice = text);
+    _noticeTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted) setState(() => _notice = null);
+    });
   }
 
   void _onChanged() {
@@ -73,11 +121,12 @@ class _DisplayScreenState extends State<DisplayScreen> {
   }
 
   Future<void> _openMenu() async {
-    if (_menuOpen) return;
+    if (_menuOpen) return; // A second press while it opens does nothing.
+    _resetBack();
+    setState(() => _menuOpen = true);
     // The picture gives way: the spikes bring their own SurfaceView.
     await _client.player.viewDisposed();
     if (!mounted) return;
-    setState(() => _menuOpen = true);
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (ctx) => widget.menuBuilder(ctx, _client.pairAnotherPhone),
@@ -94,15 +143,22 @@ class _DisplayScreenState extends State<DisplayScreen> {
           _backDown = true;
           _backFired = false;
           _backTimer?.cancel();
+          _heldSeconds = 0;
           _backTimer = Timer(widget.holdBack, () {
             _backFired = true;
-            unawaited(_client.forgetAllPhones());
+            _holdClock?.cancel();
+            _holdClock = null;
+            setState(() => _heldSeconds = 0);
+            unawaited(_forgetAll());
+          });
+          _holdClock = Timer.periodic(const Duration(seconds: 1), (_) {
+            if (mounted) setState(() => _heldSeconds++);
           });
         }
       } else if (event is KeyUpEvent) {
-        _backDown = false;
-        _backTimer?.cancel();
-        _backTimer = null;
+        final fired = _backFired;
+        _resetBack();
+        _backFired = fired;
         // A short press only closes a pairing screen the user asked for.
         if (!_backFired) _client.stopPairing();
       }
@@ -144,6 +200,9 @@ class _DisplayScreenState extends State<DisplayScreen> {
       child: Focus(
         autofocus: true,
         onKeyEvent: _onKey,
+        onFocusChange: (focused) {
+          if (!focused) _resetBack();
+        },
         child: ColoredBox(
           color: Colors.black,
           child: Stack(
@@ -164,12 +223,43 @@ class _DisplayScreenState extends State<DisplayScreen> {
                     error: _client.pairingError,
                   ),
                 ),
+              if (_heldSeconds >= 3 && _backDown)
+                _banner(
+                  height,
+                  'Keep holding Back to forget all phones: '
+                  '${(widget.holdBack.inSeconds - _heldSeconds).clamp(0, 99)} s',
+                  key: const Key('back-countdown'),
+                )
+              else if (_notice != null)
+                _banner(height, _notice!, key: const Key('display-notice')),
             ],
           ),
         ),
       ),
     );
   }
+
+  Widget _banner(double height, String text, {required Key key}) => Positioned(
+    left: 0,
+    right: 0,
+    bottom: height * 0.08,
+    child: Center(
+      child: DecoratedBox(
+        decoration: const BoxDecoration(color: Color(0xCC000000)),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: height * 0.04,
+            vertical: height * 0.02,
+          ),
+          child: Text(
+            text,
+            key: key,
+            style: TextStyle(color: Colors.white, fontSize: height * 0.04),
+          ),
+        ),
+      ),
+    ),
+  );
 
   Widget _idleMessage(double height) {
     final status = _client.statusText;

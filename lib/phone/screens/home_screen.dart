@@ -5,7 +5,7 @@ import '../phone_controller.dart';
 import 'now_playing_card.dart';
 
 /// Connected: the Pi's name, this phone's role and the paired devices.
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.controller});
 
   final PhoneController controller;
@@ -15,6 +15,41 @@ class HomeScreen extends StatelessWidget {
     DeviceRole.controller => 'Controller',
     DeviceRole.display => 'TV',
   };
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  bool _asking = false;
+
+  PhoneController get controller => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller.addListener(_checkApproval);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkApproval());
+  }
+
+  @override
+  void dispose() {
+    controller.removeListener(_checkApproval);
+    super.dispose();
+  }
+
+  /// A TV waits for approval: ask. The dialog closes by itself when the
+  /// request ends (approved on another phone, timed out, the TV left).
+  void _checkApproval() {
+    final pending = controller.pendingApproval;
+    if (pending == null || _asking || !mounted) return;
+    _asking = true;
+    showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _ApprovalDialog(controller: controller),
+    ).then((_) => _asking = false);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +70,7 @@ class HomeScreen extends StatelessWidget {
               ListTile(
                 key: const Key('my-role'),
                 leading: const Icon(Icons.phone_android),
-                title: Text('You: ${roleLabel(me.role)}'),
+                title: Text('You: ${HomeScreen.roleLabel(me.role)}'),
                 subtitle: Text(me.name),
               ),
             const Divider(),
@@ -59,7 +94,7 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ),
                 title: Text(d.id == me?.id ? '${d.name} (this phone)' : d.name),
-                subtitle: Text(roleLabel(d.role)),
+                subtitle: Text(HomeScreen.roleLabel(d.role)),
               ),
             const SizedBox(height: 24),
             OutlinedButton(
@@ -105,5 +140,52 @@ class HomeScreen extends StatelessWidget {
         const SnackBar(content: Text('Could not forget this Pi.')),
       );
     }
+  }
+}
+
+class _ApprovalDialog extends StatelessWidget {
+  const _ApprovalDialog({required this.controller});
+
+  final PhoneController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (ctx, _) {
+        final pending = controller.pendingApproval;
+        if (pending == null) {
+          // The request ended: close this dialog.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (ctx.mounted && Navigator.of(ctx).canPop()) {
+              Navigator.of(ctx).pop();
+            }
+          });
+          return const SizedBox.shrink();
+        }
+        return AlertDialog(
+          title: const Text('Approve this TV?'),
+          content: Text('"${pending.name}" wants to join as the TV display.'),
+          actions: [
+            TextButton(
+              key: const Key('approve-deny'),
+              onPressed: () {
+                controller.answerApproval(false);
+                Navigator.of(ctx).pop();
+              },
+              child: const Text('Deny'),
+            ),
+            FilledButton(
+              key: const Key('approve-yes'),
+              onPressed: () {
+                controller.answerApproval(true);
+                Navigator.of(ctx).pop();
+              },
+              child: const Text('Approve'),
+            ),
+          ],
+        );
+      },
+    );
   }
 }

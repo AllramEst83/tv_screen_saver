@@ -25,8 +25,12 @@ class PlayerController extends PhoneController {
   @override
   bool get tvNotConnected => notConnected;
 
+  /// With [ticking], every read is one second further (a running clock).
+  bool ticking = false;
+  int reads = 0;
+
   @override
-  int get positionMs => position;
+  int get positionMs => position + (ticking ? ++reads * 1000 : 0);
 
   @override
   String? get playerError => error;
@@ -120,6 +124,35 @@ void main() {
       'seek:30000',
       'mute',
     ]);
+  });
+
+  testWidgets('the position text advances while playing', (tester) async {
+    controller
+      ..ticking = true
+      ..playing = const NowPlaying(
+        itemId: 'a.mp4',
+        state: 'playing',
+        startedAt: 1,
+      );
+    await pumpCard(tester);
+    String status() =>
+        tester.widget<Text>(find.byKey(const Key('now-playing-status'))).data!;
+    final first = status();
+    await tester.pump(const Duration(seconds: 1));
+    final second = status();
+    await tester.pump(const Duration(seconds: 1));
+    expect(second, isNot(first));
+    expect(status(), isNot(second));
+
+    // Paused: the clock stops (no timer is left running).
+    controller
+      ..ticking = false
+      ..playing = const NowPlaying(itemId: 'a.mp4', state: 'paused')
+      ..update();
+    await tester.pump();
+    final frozen = status();
+    await tester.pump(const Duration(seconds: 3));
+    expect(status(), frozen);
   });
 
   testWidgets('paused and muted are shown', (tester) async {

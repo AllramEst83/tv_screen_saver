@@ -23,15 +23,25 @@ class _NowPlayingCardState extends State<NowPlayingCard> {
   PhoneController get _c => widget.controller;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+  void initState() {
+    super.initState();
+    _c.addListener(_onController);
     _syncTimer();
   }
 
   @override
   void didUpdateWidget(NowPlayingCard old) {
     super.didUpdateWidget(old);
+    if (old.controller != widget.controller) {
+      old.controller.removeListener(_onController);
+      widget.controller.addListener(_onController);
+    }
     _syncTimer();
+  }
+
+  void _onController() {
+    _syncTimer();
+    if (mounted) setState(() {});
   }
 
   /// A one-second clock only while something plays.
@@ -49,13 +59,13 @@ class _NowPlayingCardState extends State<NowPlayingCard> {
 
   @override
   void dispose() {
+    _c.removeListener(_onController);
     _tick?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    _syncTimer();
     final np = _c.nowPlaying;
     final theme = Theme.of(context);
     final title = np.isIdle ? 'Nothing playing' : np.itemId!;

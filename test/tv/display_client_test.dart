@@ -367,8 +367,97 @@ void main() {
         await tv.display.player.viewCreated(); // Menu closes
         expect(tv.native.opens, hasLength(2));
         expect(tv.native.opens.last.url, tv.native.opens.first.url);
-        expect(tv.native.opens.last.startMs, 12000);
+        expect(tv.native.opens.last.startMs, greaterThanOrEqualTo(12000));
       },
     );
+  });
+
+  group('new TV and phone approval', () {
+    /// A paired phone and a second TV (the first one gone) that has to wait.
+    Future<(PhoneRig, TvRig)> waitingTv({
+      Duration handshake = const Duration(seconds: 20),
+    }) async {
+      final first = newTv();
+      await first.start();
+      final phone = await pairPhone(first);
+      first.dispose();
+      await until(() => rig.display!.onlineDisplayId == null);
+      final second = TvRig(rig, handshakeTimeout: handshake);
+      tvs.add(second);
+      await second.display.start();
+      return (phone, second);
+    }
+
+    test('the phone is asked and the TV says to approve it', () async {
+      final (phone, tv) = await waitingTv();
+      await until(() => phone.controller.pendingApproval != null);
+      expect(phone.controller.pendingApproval!.name, 'Test TV');
+      await until(() => tv.display.awaitingApproval);
+      expect(tv.display.statusText, 'Approve this TV on your phone');
+
+      await phone.controller.answerApproval(true);
+      await until(() => tv.display.connected);
+      expect(tv.display.statusText, '');
+      expect(phone.controller.pendingApproval, isNull);
+    });
+
+    test('with no approval the TV says so after the wait', () async {
+      final (_, tv) = await waitingTv(
+        handshake: const Duration(milliseconds: 600),
+      );
+      await until(() => tv.display.statusText.startsWith('No phone approved'));
+      expect(tv.display.connected, isFalse);
+    });
+  });
+
+  group('the TV leaving and returning', () {
+    test('the phone knows from display.changed, without a command', () async {
+      final tv = newTv();
+      await tv.start();
+      final phone = await pairPhone(tv);
+      expect(phone.controller.tvNotConnected, isFalse);
+
+      tv.dispose();
+      await until(() => phone.controller.tvNotConnected);
+
+      final back = TvRig(rig, store: tv.store);
+      tvs.add(back);
+      await back.display.start();
+      await until(() => !phone.controller.tvNotConnected);
+    });
+  });
+
+  group('emptied playlist and menu', () {
+    test('an emptied playlist stops the picture instead of looping', () async {
+      final tv = newTv();
+      await tv.start();
+      final phone = await pairPhone(tv);
+      await phone.controller.play();
+      await until(() => tv.native.opens.length == 1);
+
+      playlists.playlists['all'] = [];
+      tv.native.onEnded!();
+      await until(() => !tv.display.player.hasItem);
+      expect(tv.native.calls, contains('release'));
+      expect(tv.native.calls, isNot(contains('seek:0')));
+      await until(() => phone.controller.nowPlaying.isIdle);
+    });
+
+    test('after the menu the clip resumes where it would have been', () async {
+      final tv = newTv();
+      await tv.start();
+      final phone = await pairPhone(tv);
+      tv.native.statsValue = const Media3Stats(
+        position: Duration(seconds: 12),
+        duration: Duration(seconds: 60),
+      );
+      await phone.controller.play();
+      await until(() => tv.native.opens.length == 1);
+
+      await tv.display.player.viewDisposed();
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      await tv.display.player.viewCreated();
+      expect(tv.native.opens.last.startMs, greaterThanOrEqualTo(12400));
+    });
   });
 }

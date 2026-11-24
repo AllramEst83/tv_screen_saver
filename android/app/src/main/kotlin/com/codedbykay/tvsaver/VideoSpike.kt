@@ -183,8 +183,22 @@ class VideoSpike(
                     when (call.argument<String>("action")) {
                         "play", "resume" -> player?.play()
                         "pause" -> player?.pause()
-                        "seek" -> player?.seekTo((call.argument<Number>("positionMs") ?: 0).toLong())
-                        "mute" -> player?.volume = if (call.argument<Boolean>("muted") == true) 0f else 1f
+                        "seek" -> {
+                            val pos = call.argument<Number>("positionMs")
+                            if (pos == null) {
+                                result.error("invalid_args", "positionMs is required", null)
+                                return
+                            }
+                            player?.seekTo(pos.toLong())
+                        }
+                        "mute" -> {
+                            val muted = call.argument<Boolean>("muted")
+                            if (muted == null) {
+                                result.error("invalid_args", "muted is required", null)
+                                return
+                            }
+                            player?.volume = if (muted) 0f else 1f
+                        }
                         "next" -> player?.seekToNextMediaItem()
                         "prev" -> player?.seekToPreviousMediaItem()
                         "release" -> m3Release()
@@ -267,7 +281,10 @@ class VideoSpike(
         inputFormat = null
         lastHttpStatus = null
         loopMode = "item"
+        // A Pi that stops answering fails the item after 8 s instead of hanging.
         val httpFactory = DefaultHttpDataSource.Factory()
+            .setConnectTimeoutMs(8000)
+            .setReadTimeoutMs(8000)
         if (headers.isNotEmpty()) {
             httpFactory.setDefaultRequestProperties(headers)
         }

@@ -315,7 +315,7 @@ Story 3-3: 13,784,172 bytes before, 19,409,444 after (+5.4 MiB, limit +8 MB).
 
 ## 13. TV as the paired display, and phone control (story 3-4)
 
-The TV app is now the Pi's display: it shows a pairing QR, plays what the Pi tells it and its remote controls playback. `pi_config.json` and `setup_phase2.sh` are not needed any more for normal use (the Pi stream screen of story 2-3 still reads them).
+The TV app is now the Pi's display: it shows a pairing QR, plays what the Pi tells it and its remote controls playback. The display client needs no `pi_config.json`; it finds the Pi by mDNS and uses its own token. The Pi stream and throughput screen of story 2-3 (Menu, then OK) still reads the `pi_config.json` pushed by `setup_phase2.sh`, so keep that for the benchmark.
 
 ### Deploy and install
 
@@ -327,7 +327,7 @@ adb -s <tv-ip>:5555 install -r build/app/outputs/flutter-apk/app-tv-release.apk
 flutter build apk --release --flavor phone -t lib/main_phone.dart   # install on the phone as in section 12
 ```
 
-What plays is the files in the Pi's media directory (`~/tvsaver/media`, the `all` playlist, sorted by name; dot files and `*.bin` are skipped). The clips of section 11 are enough.
+What plays is the video files (`mp4 m4v mov mkv webm ts`) in the Pi's media directory (`~/tvsaver/media`, the `all` playlist, sorted by name ignoring case). The clips of section 11 are enough.
 
 ### First run
 
@@ -345,3 +345,10 @@ What plays is the files in the Pi's media directory (`~/tvsaver/media`, the `all
 4. Fail: the clip restarts from the beginning, the TV stays on "The Pi is not reachable", or the phone shows nothing playing after the Pi is back.
 
 The TV logs nothing about tokens. To see what the TV did: `adb -s <tv-ip>:5555 logcat -d -s flutter`.
+
+### Manual checks (Kay, on the real TV)
+
+- **Hold Back for 10 s on the Sony remote.** A countdown shows from 3 s, then "All phones forgotten" and the TV returns to the pairing screen. If nothing happens (the remote's Back key may reach the app only as a system back), note it: the hold cannot be detected then.
+- **Menu key:** opens the DisplayReport menu; Back returns to the picture at the right position. If the remote has no Menu key, note which key opens it.
+- **New TV while a phone is paired:** the phone shows "Approve this TV?" and the TV says "Approve this TV on your phone".
+- **APK sizes** (release, story 3-4): TV (`--target-platform android-arm`) 19,769,936 bytes (+360,492 over story 3-3), phone 67,955,834 bytes. Story 3-3 was 19,409,444 bytes for the TV; the growth limit is the one in section 12.

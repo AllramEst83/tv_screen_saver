@@ -82,6 +82,7 @@ class TvRig {
     Rig rig, {
     HubTokenStore? store,
     Duration positionInterval = const Duration(milliseconds: 100),
+    Duration handshakeTimeout = const Duration(seconds: 20),
   }) : store = store ?? MemoryHubTokenStore(),
        lock = FakeLock(),
        native = FakeDisplayNative() {
@@ -95,6 +96,7 @@ class TvRig {
       tokenStore: this.store,
       clientName: 'Test TV',
       kind: 'display',
+      handshakeTimeout: handshakeTimeout,
       scanner: FakeScanner([endpoint]),
       directTimeout: const Duration(milliseconds: 400),
       mdnsTimeout: const Duration(milliseconds: 400),
@@ -116,6 +118,8 @@ class TvRig {
       statsInterval: const Duration(milliseconds: 50),
       errorRetry: const Duration(milliseconds: 200),
       retryDelay: const Duration(milliseconds: 100),
+      anchorDelay: const Duration(milliseconds: 100),
+      approvalHintDelay: const Duration(milliseconds: 100),
     );
   }
 

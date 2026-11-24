@@ -121,8 +121,17 @@ class DisplayModule implements HubModule {
     'online': _onlineDisplayId != null,
   };
 
+  Future<void> _presenceQueue = Future.value();
+
+  /// Calls are chained so overlapping presence changes finish in order.
   @override
-  Future<void> onPresenceChanged(Set<String> onlineDeviceIds) async {
+  Future<void> onPresenceChanged(Set<String> onlineDeviceIds) {
+    final run = _presenceQueue.then((_) => _updatePresence(onlineDeviceIds));
+    _presenceQueue = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  Future<void> _updatePresence(Set<String> onlineDeviceIds) async {
     if (_disposed) return;
     final List<DeviceRow> rows;
     try {
