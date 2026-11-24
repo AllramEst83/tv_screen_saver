@@ -6,6 +6,7 @@ import 'package:hub_core/hub_core.dart';
 
 import '../shared/multicast_lock.dart';
 import 'now_playing.dart';
+import 'upload/uploader.dart';
 
 /// Which top-level screen the phone shows.
 enum PhoneScreen { loading, connect, pin, home }
@@ -96,6 +97,8 @@ class PhoneController extends ChangeNotifier {
   Map<String, Map<String, int>> _limits = const {};
   final Map<String, String> _itemNames = {};
   final Map<String, int> _itemDurations = {};
+  final Map<String, Map<String, Object?>> _items = {};
+  ImageUploader? _uploader;
   int _usedBytes = 0;
   int _capBytes = 0;
   bool _hasLibrary = false;
@@ -189,6 +192,27 @@ class PhoneController extends ChangeNotifier {
   /// The Pi's storage limit in bytes; 0 while it is not known.
   int get storageCapBytes => _capBytes;
   bool get hasLibrary => _hasLibrary;
+
+  /// The stored library items, by name (case-insensitive).
+  List<Map<String, Object?>> get libraryItems {
+    final list = _items.values.toList()
+      ..sort(
+        (a, b) => '${a['name']}'.toLowerCase().compareTo(
+          '${b['name']}'.toLowerCase(),
+        ),
+      );
+    return list;
+  }
+
+  /// Owner and controller phones may add pictures.
+  bool get canUpload => isLinked && me?.role != DeviceRole.display;
+
+  /// The upload queue; it lives as long as the app, so it keeps running when
+  /// the Library screen is closed.
+  ImageUploader get uploader => _uploader ??= ImageUploader(
+    request: (type, args) => client.request(type, args),
+    open: client.openAuthorized,
+  );
 
   /// The name of a library item; the id when it is not known.
   String nameOfItem(String id) => _itemNames[id] ?? id;
@@ -583,6 +607,7 @@ class PhoneController extends ChangeNotifier {
         if (id is String) {
           _itemNames.remove(id);
           _itemDurations.remove(id);
+          _items.remove(id);
         }
         _readStorage(data);
         if (!_disposed) notifyListeners();
@@ -624,6 +649,7 @@ class PhoneController extends ChangeNotifier {
   void _readLibrary(Object? raw) {
     _itemNames.clear();
     _itemDurations.clear();
+    _items.clear();
     _usedBytes = 0;
     _capBytes = 0;
     _hasLibrary = false;
@@ -653,6 +679,7 @@ class PhoneController extends ChangeNotifier {
     if (raw is! Map) return;
     final id = raw['id'];
     if (id is! String) return;
+    _items[id] = Map<String, Object?>.from(raw);
     final name = raw['name'];
     if (name is String && name.isNotEmpty) _itemNames[id] = name;
     final duration = raw['durationMs'];
@@ -696,6 +723,7 @@ class PhoneController extends ChangeNotifier {
     for (final s in _subs) {
       s.cancel();
     }
+    _uploader?.dispose();
     if (_lockHeld) {
       _lockHeld = false;
       unawaited(_lock.release());

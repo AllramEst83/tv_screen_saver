@@ -303,7 +303,10 @@ class _PiScreenState extends State<PiScreen> {
           '(${p.mbPerSec.toStringAsFixed(1)} MB/s, ${p.mbps.toStringAsFixed(1)} Mbps)',
           style: body,
         ),
-        Text('In-memory only (0 flash writes). Press Back to cancel.', style: note),
+        Text(
+          'In-memory only (0 flash writes). Press Back to cancel.',
+          style: note,
+        ),
       ];
     }
     if (_result != null) {

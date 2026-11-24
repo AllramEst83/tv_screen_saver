@@ -4,6 +4,7 @@ import '../phone_controller.dart';
 import 'about_screen.dart';
 import 'devices_screen.dart';
 import 'home_screen.dart';
+import 'library_screen.dart';
 import 'settings_screen.dart';
 import 'ui.dart';
 
@@ -27,13 +28,23 @@ class ShellDestination {
 }
 
 /// The screens that exist today, in drawer order.
-List<ShellDestination> buildDestinations({VersionLoader? versionLoader}) => [
+List<ShellDestination> buildDestinations({
+  VersionLoader? versionLoader,
+  PickPictures? pick,
+}) => [
   ShellDestination(
     id: 'now-playing',
     label: 'Now playing',
     icon: Icons.play_circle_outline,
     selectedIcon: Icons.play_circle,
     builder: (_, c) => HomeScreen(controller: c),
+  ),
+  ShellDestination(
+    id: 'library',
+    label: 'Library',
+    icon: Icons.photo_library_outlined,
+    selectedIcon: Icons.photo_library,
+    builder: (_, c) => LibraryScreen(controller: c, pick: pick),
   ),
   ShellDestination(
     id: 'devices',
@@ -67,6 +78,7 @@ class AppShell extends StatefulWidget {
     required this.controller,
     this.destinations,
     this.versionLoader,
+    this.pick,
   });
 
   final PhoneController controller;
@@ -75,6 +87,9 @@ class AppShell extends StatefulWidget {
   final List<ShellDestination>? destinations;
   final VersionLoader? versionLoader;
 
+  /// Replaces the system picture picker (tests).
+  final PickPictures? pick;
+
   @override
   State<AppShell> createState() => _AppShellState();
 }
@@ -82,7 +97,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   late final List<ShellDestination> _destinations =
       widget.destinations ??
-      buildDestinations(versionLoader: widget.versionLoader);
+      buildDestinations(versionLoader: widget.versionLoader, pick: widget.pick);
   int _index = 0;
   bool _asking = false;
 

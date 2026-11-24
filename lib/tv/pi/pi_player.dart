@@ -286,7 +286,9 @@ class _PiPlayerState extends State<PiPlayer> {
   Widget _overlayBox(double height) {
     final s = _stats;
     final pos = _formatDuration(s?.position ?? Duration.zero);
-    final dur = s?.duration != null ? ' / ${_formatDuration(s!.duration!)}' : '';
+    final dur = s?.duration != null
+        ? ' / ${_formatDuration(s!.duration!)}'
+        : '';
     final lines = <String>[
       'clip ${_currentClip()}  (${(_stats?.item ?? 0) + 1}/${widget.config.playlist.length})',
       'decoder ${s?.decoder ?? '?'}  |  HDR ${s?.hdr ?? '?'}'

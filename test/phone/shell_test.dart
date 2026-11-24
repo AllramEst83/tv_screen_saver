@@ -265,7 +265,13 @@ void main() {
         'Connected',
       );
       expect(find.text('This phone: Owner'), findsOneWidget);
-      for (final label in ['Now playing', 'Devices', 'Settings', 'About']) {
+      for (final label in [
+        'Now playing',
+        'Library',
+        'Devices',
+        'Settings',
+        'About',
+      ]) {
         expect(find.text(label), findsWidgets);
       }
       expect(find.byKey(const Key('drawer-close')), findsOneWidget);
@@ -542,6 +548,36 @@ void main() {
       expect(text(), '5 KB of 4 KB used');
       expect(find.byKey(const Key('storage-over')), findsOneWidget);
       expect(find.textContaining('Over the limit'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('Library lists the Pi items and queues picked photos', (
+      tester,
+    ) async {
+      tall(tester);
+      rig = (await tester.runAsync(
+        () => Rig.start(withSettings: true, withLibrary: true),
+      ))!;
+      await tester.runAsync(
+        () => rig.db.insertLibraryItem(
+          LibraryItemsCompanion.insert(
+            id: 'a.mp4',
+            kind: 'video',
+            name: 'Fireplace',
+            sha256: 'a'.padRight(64, '0'),
+            bytes: 5000,
+            createdAt: DateTime.now().millisecondsSinceEpoch,
+          ),
+        ),
+      );
+      await connect(tester, phone);
+      await tester.runAsync(() => until(() => phone.controller.hasLibrary));
+      await pump(tester);
+      await open(tester, 'nav-library');
+      expect(find.text('Fireplace'), findsOneWidget);
+      expect(find.textContaining('Video'), findsOneWidget);
+      expect(find.text('5 KB of 10 KB used'), findsOneWidget);
+      expect(find.byKey(const Key('add-photos')), findsOneWidget);
       await finish(tester);
     });
 

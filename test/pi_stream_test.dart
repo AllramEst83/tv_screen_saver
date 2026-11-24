@@ -115,81 +115,90 @@ void main() {
       expect(cfg.toString(), isNot(contains(secretToken)));
     });
 
-    test('loadPiConfig reads from disk and rejects missing/bad files', () async {
-      final dir = Directory.systemTemp.createTempSync('pi_cfg_test');
-      addTearDown(() => dir.deleteSync(recursive: true));
+    test(
+      'loadPiConfig reads from disk and rejects missing/bad files',
+      () async {
+        final dir = Directory.systemTemp.createTempSync('pi_cfg_test');
+        addTearDown(() => dir.deleteSync(recursive: true));
 
-      await expectLater(
-        loadPiConfig(dir.path),
-        throwsA(isA<PiConfigException>()),
-      );
+        await expectLater(
+          loadPiConfig(dir.path),
+          throwsA(isA<PiConfigException>()),
+        );
 
-      File('${dir.path}/pi_config.json').writeAsStringSync('{not json');
-      await expectLater(
-        loadPiConfig(dir.path),
-        throwsA(isA<PiConfigException>()),
-      );
+        File('${dir.path}/pi_config.json').writeAsStringSync('{not json');
+        await expectLater(
+          loadPiConfig(dir.path),
+          throwsA(isA<PiConfigException>()),
+        );
 
-      File('${dir.path}/pi_config.json').writeAsStringSync(
-        jsonEncode({
-          'host': '192.168.0.43',
-          'port': 8772,
-          'token': secretToken,
-          'playlist': <String>[],
-          'throughputFile': 'throughput-1g.bin',
-        }),
-      );
-      try {
-        await loadPiConfig(dir.path);
-        fail('expected PiConfigException');
-      } on PiConfigException catch (e) {
-        expect(e.message, isNot(contains(secretToken)));
-      }
-    });
+        File('${dir.path}/pi_config.json').writeAsStringSync(
+          jsonEncode({
+            'host': '192.168.0.43',
+            'port': 8772,
+            'token': secretToken,
+            'playlist': <String>[],
+            'throughputFile': 'throughput-1g.bin',
+          }),
+        );
+        try {
+          await loadPiConfig(dir.path);
+          fail('expected PiConfigException');
+        } on PiConfigException catch (e) {
+          expect(e.message, isNot(contains(secretToken)));
+        }
+      },
+    );
   });
 
   group('ThroughputRunner (loopback HTTP)', () {
-    test('streams payload in memory, verifies Bearer auth, logs ceiling', () async {
-      await _withRealHttp(() async {
-        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-        addTearDown(() => server.close(force: true));
+    test(
+      'streams payload in memory, verifies Bearer auth, logs ceiling',
+      () async {
+        await _withRealHttp(() async {
+          final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+          addTearDown(() => server.close(force: true));
 
-        final payload = Uint8List(256 * 1024);
-        final seenUrls = <Uri>[];
-        final seenAuth = <String?>[];
-        server.listen((req) async {
-          seenUrls.add(req.uri);
-          seenAuth.add(req.headers.value(HttpHeaders.authorizationHeader));
-          req.response.statusCode = 200;
-          req.response.contentLength = payload.length * 4;
-          for (var i = 0; i < 4; i++) {
-            req.response.add(payload);
-          }
-          await req.response.close();
+          final payload = Uint8List(256 * 1024);
+          final seenUrls = <Uri>[];
+          final seenAuth = <String?>[];
+          server.listen((req) async {
+            seenUrls.add(req.uri);
+            seenAuth.add(req.headers.value(HttpHeaders.authorizationHeader));
+            req.response.statusCode = 200;
+            req.response.contentLength = payload.length * 4;
+            for (var i = 0; i < 4; i++) {
+              req.response.add(payload);
+            }
+            await req.response.close();
+          });
+
+          final cfg = PiConfig(
+            host: InternetAddress.loopbackIPv4.address,
+            port: server.port,
+            token: secretToken,
+            playlist: const ['1.mp4'],
+            throughputFile: 'throughput-1g.bin',
+          );
+
+          final runner = ThroughputRunner();
+          final result = await runner.run(cfg);
+
+          expect(seenUrls.single.toString(), '/media/throughput-1g.bin/full');
+          expect(seenAuth.single, 'Bearer $secretToken');
+          expect(result.bytes, payload.length * 4);
+          expect(result.ceilingMbps, closeTo(result.mbps * 0.60, 1e-6));
+          final line = piThroughputLogLine(result);
+          expect(
+            line,
+            startsWith('PiThroughput: bytes=${payload.length * 4} '),
+          );
+          expect(line, contains('mbps='));
+          expect(line, contains('ceiling_mbps='));
+          expect(line, isNot(contains(secretToken)));
         });
-
-        final cfg = PiConfig(
-          host: InternetAddress.loopbackIPv4.address,
-          port: server.port,
-          token: secretToken,
-          playlist: const ['1.mp4'],
-          throughputFile: 'throughput-1g.bin',
-        );
-
-        final runner = ThroughputRunner();
-        final result = await runner.run(cfg);
-
-        expect(seenUrls.single.toString(), '/media/throughput-1g.bin/full');
-        expect(seenAuth.single, 'Bearer $secretToken');
-        expect(result.bytes, payload.length * 4);
-        expect(result.ceilingMbps, closeTo(result.mbps * 0.60, 1e-6));
-        final line = piThroughputLogLine(result);
-        expect(line, startsWith('PiThroughput: bytes=${payload.length * 4} '));
-        expect(line, contains('mbps='));
-        expect(line, contains('ceiling_mbps='));
-        expect(line, isNot(contains(secretToken)));
-      });
-    });
+      },
+    );
 
     test('401 throws ThroughputException without bogus ceiling', () async {
       await _withRealHttp(() async {
@@ -213,7 +222,11 @@ void main() {
         await expectLater(
           ThroughputRunner().run(cfg),
           throwsA(
-            isA<ThroughputException>().having((e) => e.statusCode, 'status', 401),
+            isA<ThroughputException>().having(
+              (e) => e.statusCode,
+              'status',
+              401,
+            ),
           ),
         );
       });
@@ -321,99 +334,100 @@ void main() {
       expect(find.textContaining(secretToken), findsNothing);
     });
 
-    testWidgets('valid config streams with Bearer, handles Left/Right/OK/Back', (
-      tester,
-    ) async {
-      final native = _FakePiNative(
-        currentStats: const Media3Stats(
-          decoder: 'OMX.MTK.VIDEO.DECODER.HEVC',
-          hdr: 'HDR10',
-          droppedFrames: 0,
-          position: Duration(seconds: 4),
-          duration: Duration(seconds: 10),
-          item: 1,
-        ),
-      );
-      final cfg = const PiConfig(
-        host: '192.168.0.43',
-        port: 8772,
-        token: secretToken,
-        playlist: ['1-sdr.mp4', '2-hdr10.mp4'],
-        throughputFile: 'throughput-1g.bin',
-      );
+    testWidgets(
+      'valid config streams with Bearer, handles Left/Right/OK/Back',
+      (tester) async {
+        final native = _FakePiNative(
+          currentStats: const Media3Stats(
+            decoder: 'OMX.MTK.VIDEO.DECODER.HEVC',
+            hdr: 'HDR10',
+            droppedFrames: 0,
+            position: Duration(seconds: 4),
+            duration: Duration(seconds: 10),
+            item: 1,
+          ),
+        );
+        final cfg = const PiConfig(
+          host: '192.168.0.43',
+          port: 8772,
+          token: secretToken,
+          playlist: ['1-sdr.mp4', '2-hdr10.mp4'],
+          throughputFile: 'throughput-1g.bin',
+        );
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: PiScreen(
-              native: native,
-              configLoader: (_) async => cfg,
-              media3View: (onCreated) {
-                Future.microtask(() => onCreated(0));
-                return const SizedBox();
-              },
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: PiScreen(
+                native: native,
+                configLoader: (_) async => cfg,
+                media3View: (onCreated) {
+                  Future.microtask(() => onCreated(0));
+                  return const SizedBox();
+                },
+              ),
             ),
           ),
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
+        );
+        await tester.pump();
+        await tester.pump();
 
-      // Never render the bearer token on screen.
-      expect(find.textContaining(secretToken), findsNothing);
+        // Never render the bearer token on screen.
+        expect(find.textContaining(secretToken), findsNothing);
 
-      // OK on row 0 starts streaming.
-      await tester.sendKeyEvent(LogicalKeyboardKey.select);
-      await tester.pump();
-      await tester.pump();
+        // OK on row 0 starts streaming.
+        await tester.sendKeyEvent(LogicalKeyboardKey.select);
+        await tester.pump();
+        await tester.pump();
 
-      expect(find.byType(PiPlayer), findsOneWidget);
-      expect(native.opens, hasLength(1));
-      expect(native.opens.single.urls, [
-        'http://192.168.0.43:8772/media/1-sdr.mp4/full',
-        'http://192.168.0.43:8772/media/2-hdr10.mp4/full',
-      ]);
-      expect(native.opens.single.headers, {
-        'Authorization': 'Bearer $secretToken',
-      });
+        expect(find.byType(PiPlayer), findsOneWidget);
+        expect(native.opens, hasLength(1));
+        expect(native.opens.single.urls, [
+          'http://192.168.0.43:8772/media/1-sdr.mp4/full',
+          'http://192.168.0.43:8772/media/2-hdr10.mp4/full',
+        ]);
+        expect(native.opens.single.headers, {
+          'Authorization': 'Bearer $secretToken',
+        });
 
-      // Wait for 1s stats tick to populate overlay.
-      await tester.pump(const Duration(seconds: 1));
-      expect(find.textContaining('2-hdr10.mp4'), findsOneWidget);
-      expect(
-        find.textContaining('OMX.MTK.VIDEO.DECODER.HEVC'),
-        findsOneWidget,
-      );
-      expect(find.textContaining('HDR10'), findsOneWidget);
-      expect(find.textContaining('dropped 0'), findsOneWidget);
-      expect(find.textContaining('0:04 / 0:10'), findsOneWidget);
+        // Wait for 1s stats tick to populate overlay.
+        await tester.pump(const Duration(seconds: 1));
+        expect(find.textContaining('2-hdr10.mp4'), findsOneWidget);
+        expect(
+          find.textContaining('OMX.MTK.VIDEO.DECODER.HEVC'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('HDR10'), findsOneWidget);
+        expect(find.textContaining('dropped 0'), findsOneWidget);
+        expect(find.textContaining('0:04 / 0:10'), findsOneWidget);
 
-      // Left / Right control prev / next.
-      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
-      expect(native.nextCount, 1);
-      expect(native.prevCount, 1);
+        // Left / Right control prev / next.
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+        expect(native.nextCount, 1);
+        expect(native.prevCount, 1);
 
-      // OK hides and shows overlay.
-      await tester.sendKeyEvent(LogicalKeyboardKey.select);
-      await tester.pump();
-      expect(find.textContaining('OMX.MTK.VIDEO.DECODER.HEVC'), findsNothing);
-      await tester.sendKeyEvent(LogicalKeyboardKey.select);
-      await tester.pump();
-      expect(
-        find.textContaining('OMX.MTK.VIDEO.DECODER.HEVC'),
-        findsOneWidget,
-      );
+        // OK hides and shows overlay.
+        await tester.sendKeyEvent(LogicalKeyboardKey.select);
+        await tester.pump();
+        expect(find.textContaining('OMX.MTK.VIDEO.DECODER.HEVC'), findsNothing);
+        await tester.sendKeyEvent(LogicalKeyboardKey.select);
+        await tester.pump();
+        expect(
+          find.textContaining('OMX.MTK.VIDEO.DECODER.HEVC'),
+          findsOneWidget,
+        );
 
-      // Back stops playback and returns to menu.
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      await tester.pump();
-      await tester.pump();
-      expect(find.byType(PiPlayer), findsNothing);
-      expect(native.releaseCount, greaterThanOrEqualTo(1));
+        // Back stops playback and returns to menu.
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pump();
+        await tester.pump();
+        expect(find.byType(PiPlayer), findsNothing);
+        expect(native.releaseCount, greaterThanOrEqualTo(1));
 
-      await tester.pumpWidget(const SizedBox());
-    });
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
 
     testWidgets('401 shows auth failed (401) and halts retry', (tester) async {
       final logs = <String>[];

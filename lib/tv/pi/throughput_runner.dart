@@ -101,7 +101,10 @@ class ThroughputRunner {
     var forceClose = false;
     try {
       final req = await client.getUrl(config.throughputUri);
-      req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${config.token}');
+      req.headers.set(
+        HttpHeaders.authorizationHeader,
+        'Bearer ${config.token}',
+      );
       final res = await req.close();
 
       if (_cancelled) throw const ThroughputCancelledException();

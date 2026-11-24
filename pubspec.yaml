@@ -7,12 +7,15 @@ environment:
   sdk: ^3.13.0
 
 dependencies:
+  crypto: ^3.0.8
   device_info_plus: ^13.3.0
   flutter:
     sdk: flutter
   flutter_secure_storage: ^10.0.0
   hub_core:
     path: packages/hub_core
+  image: ^4.13.1
+  image_picker: ^1.2.4
   mobile_scanner: ^7.0.0
   package_info_plus: ^10.2.2
   qr: ^3.0.2
