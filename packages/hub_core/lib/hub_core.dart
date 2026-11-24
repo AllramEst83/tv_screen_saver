@@ -14,6 +14,7 @@ export 'src/server/devices_module.dart';
 export 'src/server/display_module.dart';
 export 'src/server/hub_module.dart';
 export 'src/server/hub_server.dart';
+export 'src/server/inbox_watcher.dart';
 export 'src/server/library_module.dart';
 export 'src/server/library_store.dart';
 export 'src/server/media_probe.dart';

@@ -395,3 +395,13 @@ flutter build apk --release --flavor phone -t lib/main_phone.dart
 
 Manual checks (Kay): open the drawer and look at the status line; as owner change the streaming limit and see a second phone follow; try 9999 and see the reason under the field; rename a phone; as a controller see the controls disabled with "Only the owner can change this"; **Close app** leaves the app and a relaunch reconnects; look at the idle TV screen for a few minutes (the clock group drifts about once a minute) and start a clip (the clock disappears at once).
 
+
+## 15. PC inbox share (story 4-5)
+
+Big 4K and HDR masters go from the PC to the Pi through a Samba share instead of the phone.
+
+1. Copy the scripts: `bash tool/pi/deploy.sh` (it now includes `setup_inbox.sh`).
+2. On the Pi: `sudo bash ~/tvsaver/pi/setup_inbox.sh --dry-run`, then without `--dry-run`. It installs Samba, creates `~/tvsaver/inbox` and adds the `[inbox]` share to `smb.conf`. A second run says "no changes".
+3. Once: `sudo smbpasswd -a allramest` (choose the share password; the script never stores it).
+4. On the PC: open `\gemini-pi.local\inbox` and sign in as `allramest`. Drop photos and videos in.
+5. After a file has stopped changing for 10 s the server imports it with the same checks as a phone upload (type, size, duplicate, storage cap, streaming ceiling). A photo above 4096 px is scaled down once (libvips, colour profile kept; it needs `sudo apt install libvips-tools`). Rejected files move to `inbox/rejected/` with a `.txt` that says why; nothing is deleted. The folder can be changed with `TVSAVER_INBOX_DIR`.

@@ -21,7 +21,7 @@ cd "$(dirname "$0")"
 ssh "${SSH_OPTS[@]}" "$TARGET" 'mkdir -p ~/tvsaver/pi/units ~/.config/tvsaver && chmod 700 ~/.config/tvsaver' ||
   { echo "cannot reach $TARGET (set PI_HOST to its IP if the name does not resolve)" >&2; exit 1; }
 
-scp -q "${SSH_OPTS[@]}" setup_wifi.sh wifi_prefer.sh check_wifi.sh "$TARGET:tvsaver/pi/"
+scp -q "${SSH_OPTS[@]}" setup_wifi.sh wifi_prefer.sh check_wifi.sh setup_inbox.sh "$TARGET:tvsaver/pi/"
 scp -q "${SSH_OPTS[@]}" units/tvsaver-wifi-prefer.service units/tvsaver-wifi-prefer.timer "$TARGET:tvsaver/pi/units/"
 
 ssh "${SSH_OPTS[@]}" "$TARGET" 'chmod +x ~/tvsaver/pi/*.sh; cat > ~/.config/tvsaver/.env.example' <<'ENVEX'

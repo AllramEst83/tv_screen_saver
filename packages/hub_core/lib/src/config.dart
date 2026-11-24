@@ -21,9 +21,14 @@ class ServerConfig {
     this.storageCapBytes = kDefaultStorageCapBytes,
     this.streamCeilingMbps = kDefaultStreamCeilingMbps,
     this.tvCacheBytes = kDefaultTvCacheBytes,
+    this.inboxDir,
   });
 
   final String mediaDir;
+
+  /// The folder the PC share drops files into (`TVSAVER_INBOX_DIR`); null
+  /// turns the inbox off.
+  final String? inboxDir;
   final String tokenFile;
 
   /// SQLite file for devices and pairings; null means in memory.
@@ -61,6 +66,7 @@ class ServerConfig {
           kDefaultStreamCeilingMbps,
       tvCacheBytes:
           _positiveInt(e['TVSAVER_TV_CACHE_BYTES']) ?? kDefaultTvCacheBytes,
+      inboxDir: _nonEmpty(e['TVSAVER_INBOX_DIR']) ?? '$home/tvsaver/inbox',
     );
   }
 }

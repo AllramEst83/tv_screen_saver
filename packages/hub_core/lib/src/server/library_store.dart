@@ -117,6 +117,17 @@ class LibraryEvent {
   final Map<String, Object?> data;
 }
 
+/// An inbox file that cannot be imported; [reason] is written next to it in
+/// `rejected/` for the person who dropped it.
+class ImportRefused implements Exception {
+  const ImportRefused(this.reason);
+
+  final String reason;
+
+  @override
+  String toString() => 'ImportRefused($reason)';
+}
+
 /// Why an upload could not start or continue. [status] is the HTTP status.
 class UploadRefused implements Exception {
   const UploadRefused(
@@ -846,6 +857,142 @@ class LibraryStore {
     }
     if (n > 0) _hashing = _hashing.then((_) => _hashPending());
     return n;
+  }
+
+  /// Imports the file at [path] (an inbox file) with the checks an upload
+  /// gets: supported type, size limit, duplicate sha256, storage cap and free
+  /// space, and for videos the streaming-ceiling rule. An image longer than
+  /// 4096 px is scaled down once (libvips, ICC kept); other images are kept
+  /// byte for byte. The file is consumed: moved into the library on success
+  /// and left where it is when [ImportRefused] is thrown.
+  Future<LibraryItemRow> importFile(String path, {required String name}) =>
+      _serializedStart(() async {
+        final kind = kindForFileName(name);
+        if (kind == null) {
+          throw const ImportRefused('Not a picture or video the TV can use');
+        }
+        final source = File(path);
+        final int originalBytes;
+        try {
+          originalBytes = await source.length();
+        } on FileSystemException {
+          throw const ImportRefused('The file could not be read');
+        }
+        if (originalBytes == 0) throw const ImportRefused('The file is empty');
+        var ext = name.substring(name.lastIndexOf('.') + 1).toLowerCase();
+        if (ext == 'jpeg') ext = 'jpg';
+        String? scaled;
+        try {
+          if (kind == 'image' && worker.hasVips) {
+            try {
+              final dims = await worker.tools.probeImage(path);
+              await Directory(_uploadsDir).create(recursive: true);
+              final tmp = '$_uploadsDir/import-${_newUploadId()}.jpg';
+              if (await worker.tools.fitImage(
+                source: path,
+                info: dims,
+                outPath: tmp,
+              )) {
+                scaled = tmp;
+                ext = 'jpg';
+              }
+            } on MediaToolException catch (e) {
+              throw ImportRefused(e.reason);
+            }
+          }
+          final file = scaled == null ? source : File(scaled);
+          final bytes = scaled == null ? originalBytes : await file.length();
+          final limit = kind == 'image' ? kMaxImageBytes : kMaxVideoBytes;
+          if (bytes > limit) {
+            throw ImportRefused(
+              kind == 'image'
+                  ? 'The picture is larger than 80 MB'
+                  : 'The video is larger than 50 GB',
+            );
+          }
+          final sha = await _hashFile(file);
+          if (sha == null) {
+            throw const ImportRefused('The file could not be read');
+          }
+          final dup = await db.libraryItemBySha(sha);
+          if (dup != null) {
+            throw ImportRefused('Already in the library as "${dup.name}"');
+          }
+          final id = '${sha.substring(0, 16)}.$ext';
+          if (await db.libraryItem(id) != null ||
+              await FileSystemEntity.type(pathOf(id), followLinks: false) !=
+                  FileSystemEntityType.notFound) {
+            throw const ImportRefused('Another file already uses this name');
+          }
+          final used = await usedBytes();
+          final others = [
+            for (final u in await db.allUploads()) u.bytes - u.received,
+          ].fold<int>(0, (a, b) => a + b);
+          final free = await _freeBytes(config.mediaDir);
+          if (used + bytes > config.storageCapBytes ||
+              (free != null && bytes + others > free)) {
+            throw const ImportRefused(
+              'The Pi is full. Free some space in the library first',
+            );
+          }
+          ProbeInfo? probe;
+          if (kind == 'video') {
+            probe = await worker.quickProbe(file.path, fileBytes: bytes);
+            final heavy = probe == null
+                ? null
+                : worker.tooHeavyReason(probe, bytes);
+            if (heavy != null) throw ImportRefused(heavy);
+          }
+          _finishing.add(id);
+          try {
+            await _moveFile(file.path, pathOf(id));
+            try {
+              await db.insertLibraryItem(
+                LibraryItemsCompanion.insert(
+                  id: id,
+                  kind: kind,
+                  name: name,
+                  sha256: sha,
+                  bytes: bytes,
+                  createdAt: _nowMs,
+                  width: Value(probe?.width),
+                  height: Value(probe?.height),
+                  durationMs: Value(probe?.durationMs),
+                  codec: Value(probe?.codec),
+                  profile: Value(probe?.profile),
+                  hdr: Value(probe?.hdr),
+                  fps: Value(probe?.fps),
+                  bitrate: Value(probe?.bitrate),
+                  audioCodec: Value(probe?.audioCodec),
+                  cacheRequired: Value(worker.isAboveCeiling(probe?.bitrate)),
+                ),
+              );
+            } catch (_) {
+              await _deleteFile(pathOf(id));
+              rethrow;
+            }
+          } finally {
+            _finishing.remove(id);
+          }
+          if (scaled != null) await _deleteFile(path); // the big original
+          final saved = (await db.libraryItem(id))!;
+          _emit('library.added', libraryItemJson(saved));
+          worker.enqueue(id);
+          return saved;
+        } finally {
+          if (scaled != null) await _deleteFile(scaled);
+        }
+      });
+
+  /// Renames [from] to [to]; copies and deletes when they are on different
+  /// file systems.
+  Future<void> _moveFile(String from, String to) async {
+    try {
+      await File(from).rename(to);
+    } on FileSystemException {
+      await File(from).copy(to);
+      await File(from).delete();
+    }
   }
 
   Future<void> _pruneMissing() async {

@@ -337,6 +337,70 @@ class MediaTools {
     return made;
   }
 
+  /// Scales an image whose long edge is above [edge] down to [edge] as one
+  /// JPEG (q95, orientation applied, ICC kept, other metadata dropped) at
+  /// [outPath]. Returns false when the image already fits (nothing written).
+  /// Used for inbox images: the phone does this itself for uploads.
+  Future<bool> fitImage({
+    required String source,
+    required ImageDims info,
+    required String outPath,
+    int edge = 4096,
+  }) async {
+    if (max(info.width, info.height) <= edge) return false;
+    final dir = File(outPath).parent.path;
+    await Directory(dir).create(recursive: true);
+    final base = outPath.substring(dir.length + 1);
+    final srcName = '$base.src';
+    final tmpName = '$base.tmp.jpg';
+    await _link(source, '$dir/$srcName');
+    try {
+      Future<ToolResult> run(String options) async {
+        await _delete('$dir/$tmpName');
+        return runner.run(
+          'vips',
+          [
+            'thumbnail',
+            srcName,
+            '$tmpName[$options]',
+            '$edge',
+            '--height',
+            '$edge',
+            '--size',
+            'down',
+          ],
+          timeout: const Duration(minutes: 5),
+          environment: const {'VIPS_CONCURRENCY': '1'},
+          workingDirectory: dir,
+        );
+      }
+
+      var r = await run('Q=95,optimize_coding,keep=icc');
+      if (!r.timedOut && r.exitCode != 0) {
+        r = await run('Q=95,optimize_coding');
+      }
+      if (r.timedOut) {
+        throw const MediaToolException(
+          'vips timed out scaling the image',
+          timedOut: true,
+        );
+      }
+      if (r.exitCode != 0 || !await File('$dir/$tmpName').exists()) {
+        final why = _firstLine(r.stderr);
+        throw MediaToolException(
+          why.isEmpty
+              ? 'The image could not be scaled'
+              : 'The image could not be scaled: $why',
+        );
+      }
+      await File('$dir/$tmpName').rename(outPath);
+      return true;
+    } finally {
+      await _delete('$dir/$srcName');
+      await _delete('$dir/$tmpName');
+    }
+  }
+
   /// A symlink to [source] at [to]; a copy where links are not allowed.
   Future<void> _link(String source, String to) async {
     await _delete(to);

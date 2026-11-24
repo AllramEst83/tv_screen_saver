@@ -9,6 +9,7 @@ import 'range.dart';
 import 'server/devices_module.dart';
 import 'server/display_module.dart';
 import 'server/hub_module.dart';
+import 'server/inbox_watcher.dart';
 import 'server/hub_server.dart';
 import 'server/library_module.dart';
 import 'server/library_store.dart';
@@ -71,6 +72,7 @@ class PiServer {
   /// cache cap in [config] follow it.
   final SettingsStore settings;
   StreamSubscription<Map<String, Object?>>? _settingsSub;
+  InboxWatcher? _inbox;
 
   final PlaylistSource? _playlists;
 
@@ -145,11 +147,18 @@ class PiServer {
     };
     _hub = hub;
     await library.start();
+    final inboxDir = config.inboxDir;
+    if (inboxDir != null) {
+      _inbox = InboxWatcher(dir: inboxDir, library: library);
+      await _inbox!.start();
+    }
     await hub.start();
   }
 
   Future<void> stop() async {
     library.onItemRemoved = null;
+    await _inbox?.stop();
+    _inbox = null;
     await library.stop();
     library.capabilities = null;
     await _settingsSub?.cancel();
