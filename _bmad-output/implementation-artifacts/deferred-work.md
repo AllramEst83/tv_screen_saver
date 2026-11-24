@@ -16,13 +16,3 @@
 - source_spec: `_bmad-output/specs/spec-tv-screensaver/stories/2-2-pi-file-server.md`
   summary: Make the traversal test strict (assert 400 for `%2e%2e`) and add a fake-systemctl harness test for `tool/pi/install_server.sh` idempotence and `--dry-run`.
   evidence: Review triage #13 and #14 — the explicit `..` guard is unobserved by tests and the install script is verified only by the manual real-Pi run.
-
-- source_spec: `_bmad-output/specs/spec-tv-screensaver/stories/3-1-extract-hub-core.md`
-  summary: Cap unauthenticated `/ws` connections (e.g. maxClients * 4) in HubServer.
-  evidence: Only ready clients count toward maxClients; each idle socket holds a timer for pairingTimeout (120 s). Inherited from drawing_poc, now exposed on the Pi LAN.
-- source_spec: `_bmad-output/specs/spec-tv-screensaver/stories/3-1-extract-hub-core.md`
-  summary: Harden HubServer edge cases inherited from drawing_poc (double stop, handler error after headers sent, transactional device+pairing insert, owner re-election when owner forgotten, token cache invalidation, wrong pairCode counting toward lockout, numeric hello version).
-  evidence: Raised by edge-case review of the copied code; unverified against live behaviour, none introduced by 3-1. Revisit in 3-2 (roles, pairing).
-- source_spec: `_bmad-output/specs/spec-tv-screensaver/stories/3-1-extract-hub-core.md`
-  summary: HubClient robustness: retry after socket close mid-handshake, use injected clock instead of polling DateTime.now, build ws URI with Uri() for IPv6 hosts, dispose Observables.
-  evidence: Edge-case review of copied hub_client.dart; unverified, inherited from drawing_poc. Revisit in 3-3 (phone app).

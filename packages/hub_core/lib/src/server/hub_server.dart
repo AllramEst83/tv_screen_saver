@@ -26,12 +26,17 @@ class ActivePairingCredentials {
   final DateTime expiresAt;
 }
 
-/// Multi-client authoritative WebSocket and HTTP hub server running on the TV.
+/// Close code for "try again later". dart:io rejects the registered 1013, so
+/// this uses the application range.
+const _tryAgainLater = 4013;
+
+/// Multi-client authoritative WebSocket and HTTP hub server.
 ///
 /// Supports up to [maxClients] concurrent phones, SHA-256 hashed tokens in the
 /// database, QR one-time code and 4-digit PIN pairing with a 3-attempt / 60 s
 /// lockout, per-device identity with `owner` and `controller` roles, module
 /// handler routing, targeted events and unrevisioned hot streams.
+
 class HubServer {
   HubServer({
     required this.db,
@@ -73,8 +78,9 @@ class HubServer {
   static const _maxOpCacheSize = 500;
 
   /// Current pairing credentials shown on the TV pairing dialog (or null).
-  final Observable<ActivePairingCredentials?> pairingCredentials =
-      Observable(null);
+  final Observable<ActivePairingCredentials?> pairingCredentials = Observable(
+    null,
+  );
 
   /// Emits whenever a phone reaches `pair_required` so the TV can open the
   /// pairing dialog.
@@ -106,6 +112,7 @@ class HubServer {
   final LinkedHashMap<String, Object?> _opCache = LinkedHashMap();
 
   HttpServer? _http;
+  bool _stopped = false;
   String _hubId = '';
   int _rev = 0;
   int _connSeq = 0;
@@ -172,7 +179,7 @@ class HubServer {
     return creds;
   }
 
-  /// Builds the current `drawaid://pair?...` QR URI for [lanHost].
+  /// Builds the current `tvsaver://pair?...` QR URI for [lanHost].
   String? currentQrUri(String lanHost) {
     final creds = pairingCredentials.value;
     if (creds == null || _hubId.isEmpty || port == 0) return null;
@@ -188,6 +195,7 @@ class HubServer {
   /// Starts listening on [preferredPort] (falling back to an ephemeral port
   /// if busy). The advertised port is the truth.
   Future<int> start() async {
+    if (_stopped) throw StateError('HubServer was stopped; create a new one');
     _hubId = await store.hubId();
     final address = bindAddress ?? InternetAddress.anyIPv4;
     try {
@@ -202,6 +210,8 @@ class HubServer {
 
   /// Stops the server, closes all sockets, and disposes registered modules.
   Future<void> stop() async {
+    if (_stopped) return;
+    _stopped = true;
     await _http?.close(force: true);
     _http = null;
     for (final c in [..._connections]) {
@@ -212,6 +222,8 @@ class HubServer {
     }
     _connections.clear();
     pairingCredentials.value = null;
+    pairingCredentials.dispose();
+    connectedPhones.dispose();
     for (final sub in _moduleSubs) {
       await sub.cancel();
     }
@@ -332,6 +344,13 @@ class HubServer {
       } catch (_) {
         return;
       }
+      // Cap on open sockets, including ones that never finish pairing.
+      if (_connections.length >= maxClients * 4) {
+        try {
+          await socket.close(_tryAgainLater);
+        } catch (_) {}
+        return;
+      }
       _attachSocket(socket);
       return;
     }
@@ -340,10 +359,18 @@ class HubServer {
       try {
         if (await handler(request)) return;
       } catch (_) {
-        request.response
-          ..statusCode = HttpStatus.internalServerError
-          ..write('Internal server error');
-        await request.response.close();
+        try {
+          request.response
+            ..statusCode = HttpStatus.internalServerError
+            ..write('Internal server error');
+          await request.response.close();
+        } catch (_) {
+          // Headers already sent: closing short of the declared length makes
+          // the HTTP layer drop the connection.
+          try {
+            await request.response.close();
+          } catch (_) {}
+        }
         return;
       }
     }
@@ -453,7 +480,13 @@ class HubServer {
   ) async {
     if (type == HubMsg.hello) {
       final rawV = msg['v'];
-      final clientVer = rawV == null ? 1 : (rawV is int ? rawV : 0);
+      final clientVer = rawV == null
+          ? 1
+          : (rawV is int
+                ? rawV
+                : (rawV is double && rawV.isFinite && rawV == rawV.truncate()
+                      ? rawV.toInt()
+                      : 0));
       if (clientVer < 1) {
         _send(c, HubMsg.err, {
           if (msg['rid'] != null) 'rid': msg['rid'],
@@ -534,6 +567,13 @@ class HubServer {
           await _issueTokenAndProceed(c);
           return;
         }
+        // A wrong or reused code counts toward the lockout like a wrong PIN.
+        if (_recordFailedPairAttempt(c, now, notify: false)) {
+          _send(c, HubMsg.pairFailed, {
+            'retryInMs': pairLockout.inMilliseconds,
+          });
+          return;
+        }
       }
 
       // Path C: mDNS + 4-digit PIN pairing.
@@ -611,7 +651,13 @@ class HubServer {
     _recordFailedPairAttempt(c, now);
   }
 
-  void _recordFailedPairAttempt(_HubConnection c, DateTime now) {
+  /// Counts a failed attempt. Returns true when this attempt started the
+  /// lockout. With [notify] the `pair_failed` frame is sent here.
+  bool _recordFailedPairAttempt(
+    _HubConnection c,
+    DateTime now, {
+    bool notify = true,
+  }) {
     final first = _firstFailureAt;
     if (first != null && now.difference(first) > pairLockout) {
       _wrongAttempts = 0; // Old failures decay: they do not count any more.
@@ -625,10 +671,13 @@ class HubServer {
       if (_pairingDialogOpen || _connections.any((o) => o.pairing)) {
         rotatePairingCredentials();
       }
-      _send(c, HubMsg.pairFailed, {'retryInMs': pairLockout.inMilliseconds});
-    } else {
-      _send(c, HubMsg.pairFailed);
+      if (notify) {
+        _send(c, HubMsg.pairFailed, {'retryInMs': pairLockout.inMilliseconds});
+      }
+      return true;
     }
+    if (notify) _send(c, HubMsg.pairFailed);
+    return false;
   }
 
   /// Creates the device (first one is `owner`) and token, then goes ready.
@@ -646,20 +695,35 @@ class HubServer {
       }
       final rawToken = _newSessionToken();
       final nowMs = _now().millisecondsSinceEpoch;
-      final role = await db.nextDeviceRole();
       final deviceId = 'd_${_randomHex(6)}';
-      await db.insertDevice(
-        id: deviceId,
-        name: c.clientName,
-        role: role,
-        nowMs: nowMs,
-      );
-      await db.insertPairing(
-        rawToken: rawToken,
-        deviceId: deviceId,
-        clientName: c.clientName,
-        nowMs: nowMs,
-      );
+      final String role;
+      try {
+        role = await db.transaction(() async {
+          final role = await db.nextDeviceRole();
+          await db.insertDevice(
+            id: deviceId,
+            name: c.clientName,
+            role: role,
+            nowMs: nowMs,
+          );
+          await db.insertPairing(
+            rawToken: rawToken,
+            deviceId: deviceId,
+            clientName: c.clientName,
+            nowMs: nowMs,
+          );
+          return role;
+        });
+      } catch (_) {
+        _send(c, HubMsg.err, {
+          'code': HubErrorCode.invalid,
+          'msg': 'Pairing failed, try again',
+        });
+        try {
+          await c.socket.close();
+        } catch (_) {}
+        return;
+      }
       c.tokenHash = hashToken(rawToken);
       c.authenticated = true;
       c.pairing = false;

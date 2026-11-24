@@ -347,7 +347,7 @@ void main() {
           hubId: 'h',
           token: 't',
           lastHost: '10.255.255.1',
-          lastPort: 8771,
+          lastPort: 8772,
           hubName: 'Ghost',
         ),
       );
@@ -374,7 +374,7 @@ void main() {
           hubId: rig.server.hubId,
           token: p.token!,
           lastHost: '10.255.255.1',
-          lastPort: 8771,
+          lastPort: 8772,
           hubName: 'Test TV',
         ),
       );

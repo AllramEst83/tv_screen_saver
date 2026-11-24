@@ -1,5 +1,4 @@
-
-/// Saved pairing record for a Drawing Aid TV, keyed by [hubId].
+/// Saved pairing record for a hub, keyed by [hubId].
 class SavedHubPairing {
   const SavedHubPairing({
     required this.hubId,
@@ -55,7 +54,6 @@ abstract class HubTokenStore {
   /// Sets or clears (null or blank) the local label of a stored pairing.
   Future<void> setLabel(String hubId, String? label);
 }
-
 
 /// In-memory token store for unit and integration tests.
 class MemoryHubTokenStore implements HubTokenStore {

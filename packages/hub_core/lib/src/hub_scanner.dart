@@ -4,7 +4,7 @@ import 'package:multicast_dns/multicast_dns.dart';
 
 import 'protocol.dart';
 
-/// Discovered Drawing Aid TV endpoint on the local network.
+/// Discovered hub endpoint on the local network.
 class HubEndpoint {
   const HubEndpoint({
     required this.host,
@@ -44,7 +44,7 @@ String? hubTxtValue(String txt, String key) {
   return null;
 }
 
-/// Discovers `_drawaid._tcp` hubs on the LAN via mDNS PTR -> SRV -> TXT -> A.
+/// Discovers `_tvsaver._tcp` hubs on the LAN via mDNS PTR -> SRV -> TXT -> A.
 class HubScanner {
   HubScanner({this.timeout = const Duration(seconds: 6)});
 

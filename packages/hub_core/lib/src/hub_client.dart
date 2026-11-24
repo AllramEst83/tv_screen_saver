@@ -11,10 +11,10 @@ import 'token_store.dart';
 /// User-facing messages for connection problems.
 abstract final class HubMessages {
   static const appNotOpen =
-      "Drawing Aid isn't open on the TV. Open it with the remote.";
+      "TV Saver isn't open on the TV. Open it with the remote.";
   static const tvNotFound = 'TV not found';
   static const wrongTv = 'A different TV answered at that address.';
-  static const invalidQr = "That isn't a Drawing Aid QR code.";
+  static const invalidQr = "That isn't a TV Saver QR code.";
   static const wrongPin = 'Wrong PIN or expired code.';
   static const replaced = 'This phone was connected from somewhere else.';
   static const tvFull = 'This TV already has the maximum number of phones.';
@@ -149,9 +149,7 @@ class HubClient {
   final Duration deadAfter;
   final List<Duration> reconnectBackoff;
 
-  final Observable<HubClientState> state = Observable(
-    const HubClientState(),
-  );
+  final Observable<HubClientState> state = Observable(const HubClientState());
 
   final _framesCtrl = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get frames => _framesCtrl.stream;
@@ -184,7 +182,7 @@ class HubClient {
   int _reconnectAttempt = 0;
   int _generation = 0;
   bool _sentToken = false;
-  DateTime _lastFrameAt = DateTime.now();
+  late DateTime _lastFrameAt = _now();
 
   /// Estimated TV epoch milliseconds, compensating for phone/TV clock skew.
   int get estimatedTvNowMs => _now().millisecondsSinceEpoch + _clock.offsetMs;
@@ -205,7 +203,7 @@ class HubClient {
   int get clockOffsetMs => _clock.offsetMs;
   int get lastRev => _lastRev;
 
-  /// Connects using a scanned `drawaid://pair?...` QR code (one-step pairing).
+  /// Connects using a scanned `tvsaver://pair?...` QR code (one-step pairing).
   /// Completes when the handshake settles; returns true when connected.
   Future<bool> connectFromQrUri(String rawUri) async {
     final parsed = PairQrData.tryParse(rawUri);
@@ -223,7 +221,7 @@ class HubClient {
     return _connectUser(
       host: parsed.host,
       port: parsed.port,
-      hubName: saved?.hubName ?? 'Drawing Aid TV',
+      hubName: saved?.hubName ?? 'TV Saver',
       expectedHubId: parsed.hubId,
       token: saved?.token,
       pairCode: parsed.pairCode,
@@ -375,7 +373,7 @@ class HubClient {
     required Duration timeout,
     required int gen,
   }) async {
-    final deadline = DateTime.now().add(timeout);
+    final elapsed = Stopwatch()..start();
     final outcome = await _openSocket(
       host: host,
       port: port,
@@ -387,7 +385,7 @@ class HubClient {
     );
     if (gen != _generation) return _Open.failed;
     if (outcome != _Open.ok) return outcome;
-    var remaining = deadline.difference(DateTime.now());
+    var remaining = timeout - elapsed.elapsed;
     if (remaining < const Duration(milliseconds: 100)) {
       remaining = const Duration(milliseconds: 100);
     }
@@ -513,6 +511,7 @@ class HubClient {
     await _framesCtrl.close();
     await _snapshotCtrl.close();
     await _eventsCtrl.close();
+    state.dispose();
   }
 
   // ---- Internal socket lifecycle ----
@@ -566,8 +565,11 @@ class HubClient {
       clearPinRetry: true,
     );
 
-    final connecting = WebSocket.connect('ws://$host:$port$kWsPath');
+    Future<WebSocket>? connecting;
     try {
+      connecting = WebSocket.connect(
+        Uri(scheme: 'ws', host: host, port: port, path: kWsPath).toString(),
+      );
       final ws = await connecting.timeout(timeout);
       if (gen != _generation) {
         unawaited(ws.close());
@@ -593,7 +595,7 @@ class HubClient {
     } on TimeoutException {
       // A late success must not leak a socket.
       unawaited(
-        connecting.then<void>((ws) => ws.close(), onError: (Object _) {}),
+        connecting!.then<void>((ws) => ws.close(), onError: (Object _) {}),
       );
       return _Open.failed;
     } catch (e) {
@@ -604,13 +606,29 @@ class HubClient {
   /// Waits for the handshake after the socket opened. Returns true on
   /// `ready`; false on a final answer (PIN needed, wrong TV, ...) or timeout.
   Future<bool> _awaitHandshake(Duration timeout, int gen) async {
-    final deadline = DateTime.now().add(timeout);
-    while (DateTime.now().isBefore(deadline)) {
-      if (gen != _generation) return false;
-      if (state.value.phase == HubConnectionPhase.connected) return true;
-      if (_terminal) return false;
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+    final done = Completer<bool>();
+    void check() {
+      if (done.isCompleted) return;
+      if (gen != _generation) {
+        done.complete(false);
+      } else if (state.value.phase == HubConnectionPhase.connected) {
+        done.complete(true);
+      } else if (_terminal) {
+        done.complete(false);
+      }
     }
+
+    final poll = Timer.periodic(
+      const Duration(milliseconds: 20),
+      (_) => check(),
+    );
+    state.addListener(check);
+    check();
+    final result = await done.future.timeout(timeout, onTimeout: () => false);
+    poll.cancel();
+    state.removeListener(check);
+    if (done.isCompleted && result) return true;
+    if (gen != _generation || _terminal) return false;
     if (state.value.phase == HubConnectionPhase.connected) return true;
     if (gen == _generation && !_terminal) await _closeSocket();
     return false;
@@ -756,7 +774,7 @@ class HubClient {
   void _onReady(Map<String, dynamic> msg) {
     final serverId = msg['id'] as String? ?? '';
     final serverName =
-        msg['name'] as String? ?? state.value.hubName ?? 'Drawing Aid TV';
+        msg['name'] as String? ?? state.value.hubName ?? 'TV Saver';
     final expected = _expectedHubId;
     if (expected != null && expected.isNotEmpty && serverId != expected) {
       _terminal = true;
@@ -859,7 +877,15 @@ class HubClient {
       );
       return;
     }
-    if (state.value.phase != HubConnectionPhase.connected) return;
+    final phase = state.value.phase;
+    if (phase == HubConnectionPhase.offline ||
+        phase == HubConnectionPhase.appNotOpen ||
+        phase == HubConnectionPhase.reconnecting) {
+      // Closed mid-handshake while retrying: try again later.
+      if (!_terminal) _scheduleRetry();
+      return;
+    }
+    if (phase != HubConnectionPhase.connected) return;
     state.value = state.value.copyWith(phase: HubConnectionPhase.reconnecting);
     _scheduleRetry();
   }

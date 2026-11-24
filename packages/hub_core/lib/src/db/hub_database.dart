@@ -96,10 +96,12 @@ class HubDatabase extends _$HubDatabase {
   Future<DeviceRow?> getDevice(String id) =>
       (select(devices)..where((t) => t.id.equals(id))).getSingleOrNull();
 
-  /// Role for the next paired device: the first one is `owner`, the rest
+  /// Role for the next paired device: `owner` while no owner exists, else
   /// `controller`.
   Future<String> nextDeviceRole() async =>
-      (await allDevices()).isEmpty ? 'owner' : 'controller';
+      (await allDevices()).any((d) => d.role == 'owner')
+      ? 'controller'
+      : 'owner';
 
   Future<void> insertDevice({
     required String id,

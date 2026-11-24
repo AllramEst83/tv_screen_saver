@@ -6,8 +6,8 @@ import 'package:test/test.dart';
 void main() {
   group('protocol', () {
     test('constants', () {
-      expect(kHubService, '_drawaid._tcp');
-      expect(kDefaultHubPort, 8771);
+      expect(kHubService, '_tvsaver._tcp');
+      expect(kDefaultHubPort, 8772);
       expect(kMaxFrameBytes, 64 * 1024);
     });
 
@@ -27,19 +27,19 @@ void main() {
       const data = PairQrData(
         version: 1,
         host: '192.168.0.24',
-        port: 8771,
+        port: 8772,
         hubId: 'abc',
         pairCode: 'code_-1',
       );
       final uri = data.toUriString();
-      expect(uri, startsWith('drawaid://pair?'));
+      expect(uri, startsWith('tvsaver://pair?'));
       final parsed = PairQrData.tryParse(uri)!;
       expect(parsed.host, '192.168.0.24');
-      expect(parsed.port, 8771);
+      expect(parsed.port, 8772);
       expect(parsed.hubId, 'abc');
       expect(parsed.pairCode, 'code_-1');
       expect(PairQrData.tryParse('familyhub://pair?v=1&h=a&p=1&id=x'), isNull);
-      expect(PairQrData.tryParse('drawaid://pair?v=1&h=a&p=0&id=x'), isNull);
+      expect(PairQrData.tryParse('tvsaver://pair?v=1&h=a&p=0&id=x'), isNull);
     });
   });
 

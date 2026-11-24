@@ -72,7 +72,7 @@ context:
 
 ## Implementation Notes
 
-- SDK constraint raised to ^3.8.0 (null-aware elements). Pi needs system libsqlite3. QR scheme `drawaid://`, service `_drawaid._tcp`, default hub port 8771 left unchanged (wire protocol). Pi registers no DevicesModule or pairing session yet (3-2). Review patches: PiServer/db/config tests, constantTimeEquals restored, startup error handling, hub.db 0600, doc reworded.
+- SDK constraint raised to ^3.8.0 (null-aware elements). Pi needs system libsqlite3. QR scheme is `tvsaver://`, service `_tvsaver._tcp`, default hub port 8772. Pi registers no DevicesModule or pairing session yet (3-2). Review patches: PiServer/db/config tests, constantTimeEquals restored, startup error handling, hub.db 0600, doc reworded.
 
 ## Spec Change Log
 

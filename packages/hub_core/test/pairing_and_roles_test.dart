@@ -517,7 +517,7 @@ void main() {
         expect(client.state.value.lastError, HubMessages.appNotOpen);
         expect(
           client.state.value.lastError,
-          "Drawing Aid isn't open on the TV. Open it with the remote.",
+          "TV Saver isn't open on the TV. Open it with the remote.",
         );
 
         // The app reopens: the phone connects on its own, no input.
@@ -552,7 +552,7 @@ void main() {
           hubId: 'hub-x',
           token: 'tok',
           lastHost: '10.255.255.1',
-          lastPort: 8771,
+          lastPort: 8772,
           hubName: 'Ghost TV',
         ),
       );

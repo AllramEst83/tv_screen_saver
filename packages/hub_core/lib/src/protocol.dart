@@ -2,11 +2,11 @@ import 'dart:convert';
 
 /// Hub Protocol v1 constants and frame codecs shared between TV and phone.
 const kProtocolVersion = 2;
-const kHubService = '_drawaid._tcp';
-const kDefaultHubPort = 8771;
+const kHubService = '_tvsaver._tcp';
+const kDefaultHubPort = 8772;
 const kWsPath = '/ws';
 const kMaxFrameBytes = 64 * 1024;
-const kQrScheme = 'drawaid';
+const kQrScheme = 'tvsaver';
 
 /// Core handshake and transport message types.
 abstract final class HubMsg {
@@ -63,7 +63,7 @@ Map<String, dynamic>? decodeFrame(Object? raw, {Set<String>? knownTypes}) {
 }
 
 /// Parsed representation of the TV pairing QR code URI:
-/// `drawaid://pair?v=1&h=192.168.0.24&p=8771&id=<hubId>&c=<pairCode>`
+/// `tvsaver://pair?v=1&h=192.168.0.24&p=8772&id=<hubId>&c=<pairCode>`
 class PairQrData {
   const PairQrData({
     required this.version,
