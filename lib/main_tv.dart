@@ -10,6 +10,7 @@ import 'package:hub_core/hub_core.dart';
 
 import 'shared/secure_token_store.dart';
 import 'tv/cache/media_cache.dart';
+import 'tv/display/playback_log.dart';
 import 'tv/display/display_client.dart';
 import 'tv/display/display_native.dart';
 import 'tv/display/display_screen.dart';
@@ -53,6 +54,7 @@ Future<void> main() async {
     ..maximumSize = 8;
 
   final cache = await _openCache();
+  final log = await _openLog();
   final store = SecureTokenStore();
   final display = DisplayClient(
     client: HubClient(
@@ -73,6 +75,7 @@ Future<void> main() async {
       panel: panel,
       homeBuilder: (context) => DisplayScreen(
         client: display,
+        log: log,
         menuBuilder: (ctx, onPairPhone) => Scaffold(
           backgroundColor: Colors.black,
           body: TvMenuScreen(
@@ -132,5 +135,19 @@ Future<MediaCache?> _openCache() async {
   } catch (e) {
     debugPrint('TV Saver: no media cache: $e');
     return null;
+  }
+}
+
+/// The playback log in the app's external files directory, where `adb pull`
+/// can read it (`Android/data/<package>/files/log/playback.csv`).
+Future<PlaybackLog> _openLog() async {
+  try {
+    final dir =
+        await getExternalStorageDirectory() ??
+        await getApplicationSupportDirectory();
+    return FilePlaybackLog(File('${dir.path}/log/playback.csv'));
+  } catch (e) {
+    debugPrint('TV Saver: no playback log: $e');
+    return const NoPlaybackLog();
   }
 }

@@ -13,6 +13,7 @@ import 'awake_guard.dart';
 import 'display_client.dart';
 import 'idle_view.dart';
 import 'info_overlay.dart';
+import 'playback_log.dart';
 import 'image_stage.dart';
 import 'pairing_view.dart';
 
@@ -39,6 +40,8 @@ class DisplayScreen extends StatefulWidget {
     this.now,
     this.awake = const WakelockAwakeGuard(),
     this.infoFor = const Duration(seconds: 8),
+    this.log = const NoPlaybackLog(),
+    this.heartbeat = const Duration(minutes: 5),
   });
 
   final DisplayClient client;
@@ -59,6 +62,12 @@ class DisplayScreen extends StatefulWidget {
 
   /// How long the Info key's overlay stays.
   final Duration infoFor;
+
+  /// Where lifecycle changes, new items and heartbeats are noted.
+  final PlaybackLog log;
+
+  /// How often a heartbeat line is written while the screen is up.
+  final Duration heartbeat;
 
   @override
   State<DisplayScreen> createState() => _DisplayScreenState();
@@ -84,6 +93,8 @@ class _DisplayScreenState extends State<DisplayScreen>
   bool _infoVisible = false;
   Timer? _infoHide;
   Timer? _infoTick;
+  Timer? _heartbeat;
+  String? _loggedItem;
 
   DisplayClient get _client => widget.client;
 
@@ -94,6 +105,8 @@ class _DisplayScreenState extends State<DisplayScreen>
     _client.addListener(_onChanged);
     _client.player.active.addListener(_syncAwake);
     _syncAwake();
+    widget.log.event('start');
+    _heartbeat = Timer.periodic(widget.heartbeat, (_) => _note('heartbeat'));
     unawaited(_client.start());
   }
 
@@ -105,6 +118,8 @@ class _DisplayScreenState extends State<DisplayScreen>
     _noticeTimer?.cancel();
     _infoHide?.cancel();
     _infoTick?.cancel();
+    _heartbeat?.cancel();
+    widget.log.event('stop');
     _client.removeListener(_onChanged);
     _client.player.active.removeListener(_syncAwake);
     unawaited(widget.awake.release());
@@ -115,6 +130,7 @@ class _DisplayScreenState extends State<DisplayScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // A key-up that never arrives must not leave Back "held".
     _resetBack();
+    _note(state.name);
     if (state == AppLifecycleState.resumed) {
       // The system may have brought its bars or its sleep back meanwhile.
       unawaited(
@@ -180,7 +196,25 @@ class _DisplayScreenState extends State<DisplayScreen>
   }
 
   void _onChanged() {
+    final id = _client.player.itemId;
+    if (id != _loggedItem) {
+      _loggedItem = id;
+      _note('item');
+    }
     if (mounted) setState(() {});
+  }
+
+  /// One line in the playback log with what is on screen now.
+  void _note(String event) {
+    final s = _client.player.snapshot;
+    widget.log.event(
+      event,
+      item: s.itemId,
+      state: s.state,
+      detail: event == 'heartbeat'
+          ? '${s.positionMs}ms ${_client.connected ? 'online' : 'offline'}'
+          : null,
+    );
   }
 
   Future<void> _openMenu() async {

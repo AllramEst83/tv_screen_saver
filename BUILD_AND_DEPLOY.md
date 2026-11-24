@@ -405,3 +405,46 @@ Big 4K and HDR masters go from the PC to the Pi through a Samba share instead of
 3. Once: `sudo smbpasswd -a allramest` (choose the share password; the script never stores it).
 4. On the PC: open `\gemini-pi.local\inbox` and sign in as `allramest`. Drop photos and videos in.
 5. After a file has stopped changing for 10 s the server imports it with the same checks as a phone upload (type, size, duplicate, storage cap, streaming ceiling). A photo above 4096 px is scaled down once (libvips, colour profile kept; it needs `sudo apt install libvips-tools`). Rejected files move to `inbox/rejected/` with a `.txt` that says why; nothing is deleted. The folder can be changed with `TVSAVER_INBOX_DIR`.
+
+## 16. The 8-hour soak (story 5-4)
+
+The tools are ready; you run the test. Nothing here changes a TV setting.
+
+**Once, by hand on the TV** (`lan-setup.md`): Settings, System, Power and energy: *Idle TV standby* Off; Picture power saving / Eco Off; Screensaver "when to start" the longest value. Install the current TV APK (section 5).
+
+**1. Media on the Pi**
+
+```bash
+PI_HOST=<the Pi's Floor 1 address> PI_TOKEN=<token from ~/.config/tvsaver/token on the Pi> \
+  bash tool/soak/prepare_soak.sh
+```
+
+It makes the test clips (HDR10, HLG, SDR, a 23.976 fps pan, a loop clip; `ffmpeg` needed) and five photos (a 1 px line chart, a 6000 x 4000 one, a portrait, bars, colour ramps), and uploads them. `--dry-run` lists what it would do. Run it again after an interruption: what the Pi has is skipped.
+
+**2. The playlist.** Phone app, Playlists, New playlist, name it "Soak", add everything from the library, Shuffle off, "Time per photo" 15 seconds, Save, press play. Check once by eye: photos sharp, clips play with sound, the Info key shows the overlay.
+
+**3. Start the sampler** on the PC (read-only; it only runs `dumpsys`/`pidof`):
+
+```bash
+bash tool/tv/soak_sample.sh 192.168.0.24:5555 --interval 900
+```
+
+Leave it running for 8 hours (Ctrl-C to stop). It writes `build/measurements/soak-<time>.tsv`, one line every 15 minutes; a sample it cannot take (the adb link dropped) is noted and the next one retries.
+
+**4. Pull the app's own log** after the run (or after a short dry run of 2 hours first):
+
+```bash
+adb -s 192.168.0.24:5555 pull /sdcard/Android/data/com.codedbykay.tvsaver.tv/files/log/playback.csv build/measurements/
+```
+
+It has a line for every lifecycle change (`inactive`, `paused`, `resumed`, ...), every new item and a heartbeat every 5 minutes (position and whether the Pi was reachable).
+
+**5. The verdict**
+
+```bash
+bash tool/tv/soak_report.sh build/measurements/soak-<time>.tsv build/measurements/playback.csv
+```
+
+It prints the duration, every interruption with its time, the memory of the first and the last hour and the trend. **PASS** = no interruption, trend under 10 MB/h and the last hour less than 100 MB above the first. It needs 2 hours or more of samples; with less it says so (exit code 3). An interruption means the TV settings above are not enough: tell me what it says and we decide.
+
+**Self-test of the tools:** `bash tool/tv/test/test_soak_scripts.sh` (no TV needed).
