@@ -32,13 +32,17 @@ class ServerConfig {
   final String serverId;
 
   /// Most bytes the library (plus unfinished uploads) may take.
-  final int storageCapBytes;
+  ///
+  /// The three values here start from the environment. Once the server runs,
+  /// the stored settings (`SettingsStore`) own them and write every change
+  /// back here, so the library and the media worker read the current value.
+  int storageCapBytes;
 
   /// Streaming ceiling in Mbit/s (`TVSAVER_STREAM_CEILING_MBPS`).
-  final int streamCeilingMbps;
+  int streamCeilingMbps;
 
   /// The TV's cache cap in bytes (`TVSAVER_TV_CACHE_BYTES`).
-  final int tvCacheBytes;
+  int tvCacheBytes;
 
   factory ServerConfig.fromEnvironment([Map<String, String>? env]) {
     final e = env ?? Platform.environment;

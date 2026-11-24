@@ -6,8 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
+import 'package:hub_core/hub_core.dart';
+
 import '../video_spike/spike_native.dart';
 import 'display_client.dart';
+import 'idle_view.dart';
 import 'pairing_view.dart';
 
 /// How long Back is held to forget every phone.
@@ -30,6 +33,7 @@ class DisplayScreen extends StatefulWidget {
     required this.menuBuilder,
     this.media3View,
     this.holdBack = forgetAllHold,
+    this.now,
   });
 
   final DisplayClient client;
@@ -41,6 +45,9 @@ class DisplayScreen extends StatefulWidget {
   /// Replaces the native Media3 platform view; calls `onCreated` once built.
   final Widget Function(void Function(int id) onCreated)? media3View;
   final Duration holdBack;
+
+  /// The idle clock's time source (tests).
+  final DateTime Function()? now;
 
   @override
   State<DisplayScreen> createState() => _DisplayScreenState();
@@ -214,8 +221,7 @@ class _DisplayScreenState extends State<DisplayScreen>
                       widget.media3View?.call(_onMedia3ViewCreated) ??
                       _media3View(),
                 ),
-              if (!_client.player.hasItem && !_client.needsPairing)
-                _idleMessage(height),
+              if (!_client.player.hasItem && !_client.needsPairing) _idleView(),
               if (_client.needsPairing)
                 Positioned.fill(
                   child: PairingView(
@@ -261,30 +267,25 @@ class _DisplayScreenState extends State<DisplayScreen>
     ),
   );
 
-  Widget _idleMessage(double height) {
+  Widget _idleView() {
     final status = _client.statusText;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'TV Saver',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: height * 0.07,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          SizedBox(height: height * 0.02),
-          Text(
-            status.isEmpty ? 'Press Play in the phone app.' : status,
-            key: const Key('display-status'),
-            style: TextStyle(
-              color: const Color(0xFFD0D0D0),
-              fontSize: height * 0.04,
-            ),
-          ),
-        ],
+    final phase = _client.hub.phase;
+    final link = _client.connected
+        ? IdleLink.connected
+        : switch (phase) {
+            HubConnectionPhase.connecting ||
+            HubConnectionPhase.reconnecting ||
+            HubConnectionPhase.disconnected ||
+            HubConnectionPhase.awaitingPin => IdleLink.connecting,
+            _ => IdleLink.unreachable,
+          };
+    return Positioned.fill(
+      child: IdleView(
+        status: _client.connected || status.isEmpty
+            ? IdleView.readyText
+            : status,
+        link: link,
+        now: widget.now,
       ),
     );
   }

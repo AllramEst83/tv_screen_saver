@@ -9,6 +9,7 @@ import '../observable.dart';
 import '../protocol.dart';
 import '../tv_store.dart';
 import 'hub_module.dart';
+import 'devices_module.dart';
 
 typedef HttpRouteHandler = Future<bool> Function(HttpRequest request);
 
@@ -719,9 +720,12 @@ class HubServer {
       final isDisplayHello = kind == 'display';
       c.wantsDisplay = isDisplayHello;
       final rawName = msg['client'];
-      c.clientName = (rawName is String && rawName.trim().isNotEmpty)
-          ? rawName.trim()
-          : (isDisplayHello ? 'TV' : 'Phone');
+      final trimmed = rawName is String ? rawName.trim() : '';
+      c.clientName = trimmed.isEmpty
+          ? (isDisplayHello ? 'TV' : 'Phone')
+          : (trimmed.length > DevicesModule.maxNameLength
+                ? trimmed.substring(0, DevicesModule.maxNameLength).trimRight()
+                : trimmed);
 
       // Path A: reconnect with a saved token.
       final token = msg['token'];

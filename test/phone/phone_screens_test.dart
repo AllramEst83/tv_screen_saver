@@ -133,9 +133,7 @@ void main() {
     expect(find.byKey(const Key('open-settings')), findsOneWidget);
   });
 
-  testWidgets('PIN screen: wrong PIN message', (
-    tester,
-  ) async {
+  testWidgets('PIN screen: wrong PIN message', (tester) async {
     await pumpApp(tester);
     setHub(tester, const HubClientState(phase: HubConnectionPhase.awaitingPin));
     await tester.pump();
@@ -199,7 +197,11 @@ void main() {
     await tester.pump();
     expect(find.byType(HomeScreen), findsOneWidget);
     expect(find.text('Living room Pi'), findsOneWidget);
-    expect(find.text('You: Owner'), findsOneWidget);
+    expect(find.text('This phone is the owner.'), findsOneWidget);
+    await tester.tap(find.byTooltip('Open navigation menu'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('drawer-role')).evaluate(), isNotEmpty);
+    expect(find.text('This phone: Owner'), findsOneWidget);
   });
 
   testWidgets(
@@ -216,12 +218,27 @@ void main() {
       await tester.pumpWidget(PhoneApp(controller: phone.controller));
       await tester.pump();
       expect(find.byType(HomeScreen), findsOneWidget);
-      expect(find.text('You: Owner'), findsOneWidget);
+      expect(find.text('This phone is the owner.'), findsOneWidget);
+      await tester.tap(find.byTooltip('Open navigation menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('nav-devices')));
+      await tester.pumpAndSettle();
       expect(find.textContaining('(this phone)'), findsOneWidget);
       final me = phone.controller.me!;
-      final dot = tester.widget<Icon>(find.byKey(Key('dot-${me.id}')));
-      expect(dot.color, Colors.green);
+      expect(
+        tester.getSemantics(find.byKey(Key('dot-${me.id}'))).label,
+        contains('online'),
+      );
 
+      await tester.tap(find.byTooltip('Open navigation menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('nav-settings')));
+      await tester.pumpAndSettle();
+      await tester.dragUntilVisible(
+        find.byKey(const Key('forget-pi')),
+        find.byType(ListView).first,
+        const Offset(0, -300),
+      );
       await tester.tap(find.byKey(const Key('forget-pi')));
       await tester.pumpAndSettle();
       expect(find.text('Forget this Pi?'), findsOneWidget);
@@ -268,7 +285,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(ScanScreen), findsNothing);
     expect(find.byType(HomeScreen), findsOneWidget);
-    expect(find.text('You: Owner'), findsOneWidget);
+    expect(find.text('This phone is the owner.'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(phone.dispose);
   });

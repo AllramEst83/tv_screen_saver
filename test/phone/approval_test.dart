@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tv_saver/phone/phone_controller.dart';
-import 'package:tv_saver/phone/screens/home_screen.dart';
+import 'package:tv_saver/phone/screens/app_shell.dart';
 
 import 'support.dart';
 
@@ -42,7 +42,7 @@ void main() {
 
   Future<void> pumpHome(WidgetTester tester) async {
     await tester.pumpWidget(
-      MaterialApp(home: HomeScreen(controller: controller)),
+      MaterialApp(home: AppShell(controller: controller)),
     );
     await tester.pump();
   }

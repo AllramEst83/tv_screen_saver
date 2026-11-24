@@ -20,6 +20,8 @@ export 'src/server/media_probe.dart';
 export 'src/server/media_worker.dart';
 export 'src/server/player_module.dart';
 export 'src/server/playlist_source.dart';
+export 'src/server/settings_module.dart';
+export 'src/server/settings_store.dart';
 export 'src/server/tool_runner.dart';
 export 'src/token_store.dart';
 export 'src/tv_store.dart';

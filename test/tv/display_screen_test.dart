@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hub_core/hub_core.dart';
 import 'package:tv_saver/tv/display/display_client.dart';
 import 'package:tv_saver/tv/display/display_screen.dart';
+import 'package:tv_saver/tv/display/idle_view.dart';
 import 'package:tv_saver/tv/display/pairing_view.dart';
 import 'package:tv_saver/tv/menu_screen.dart';
 
@@ -99,6 +100,41 @@ void main() {
     expect(find.byKey(const Key('fake-video')), findsOneWidget);
     expect(find.byKey(const Key('display-status')), findsOneWidget);
     expect(find.byType(PairingView), findsNothing);
+  });
+
+  testWidgets('paired and idle: the clock screen, gone the moment a clip '
+      'starts; the Menu key still works', (tester) async {
+    await pumpScreen(tester);
+    expect(find.byType(IdleView), findsOneWidget);
+    expect(find.byKey(const Key('display-status')), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.contextMenu);
+    await tester.pumpAndSettle();
+    expect(find.byType(TvMenuScreen), findsOneWidget);
+    tester.state<NavigatorState>(find.byType(Navigator)).pop();
+    await tester.pumpAndSettle();
+
+    await tester.runAsync(
+      () => client.player.load(
+        itemId: 'a.mp4',
+        url: 'http://pi/a.mp4',
+        headers: const {},
+      ),
+    );
+    client.changed();
+    await tester.pump();
+    expect(find.byType(IdleView), findsNothing);
+  });
+
+  testWidgets('no phone paired: the pairing view, not the idle screen', (
+    tester,
+  ) async {
+    client
+      ..pairingWanted = true
+      ..pairingInfo = null;
+    await pumpScreen(tester);
+    expect(find.byType(IdleView), findsNothing);
+    expect(find.byType(PairingView), findsOneWidget);
   });
 
   testWidgets('the remote: OK, Left, Right, fast-forward and rewind', (

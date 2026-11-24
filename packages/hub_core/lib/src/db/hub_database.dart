@@ -119,7 +119,17 @@ class Uploads extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-@DriftDatabase(tables: [Devices, Pairings, LibraryItems, Uploads])
+/// One persisted setting: `key` is the setting name, `value` its JSON.
+@DataClassName('SettingRow')
+class Settings extends Table {
+  TextColumn get key => text()();
+  TextColumn get value => text()();
+
+  @override
+  Set<Column> get primaryKey => {key};
+}
+
+@DriftDatabase(tables: [Devices, Pairings, LibraryItems, Uploads, Settings])
 class HubDatabase extends _$HubDatabase {
   HubDatabase(super.e);
 
@@ -141,7 +151,7 @@ class HubDatabase extends _$HubDatabase {
   factory HubDatabase.inMemory() => HubDatabase(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -158,6 +168,9 @@ class HubDatabase extends _$HubDatabase {
         await m.addColumn(libraryItems, libraryItems.stateReason);
         await m.addColumn(libraryItems, libraryItems.cacheRequired);
         await m.addColumn(libraryItems, libraryItems.variants);
+      }
+      if (from < 4) {
+        await m.createTable(settings);
       }
     },
     beforeOpen: (details) async {
@@ -315,6 +328,22 @@ class HubDatabase extends _$HubDatabase {
     final row = await (selectOnly(libraryItems)..addColumns([sum])).getSingle();
     return row.read(sum) ?? 0;
   }
+
+  // ---- Settings ----
+
+  /// Every stored setting as key to JSON text.
+  Future<Map<String, String>> allSettings() async => {
+    for (final r in await select(settings).get()) r.key: r.value,
+  };
+
+  /// Writes [values] (key to JSON text) in one transaction.
+  Future<void> writeSettings(Map<String, String> values) => transaction(() async {
+    for (final e in values.entries) {
+      await into(settings).insertOnConflictUpdate(
+        SettingsCompanion.insert(key: e.key, value: e.value),
+      );
+    }
+  });
 
   // ---- Uploads ----
 

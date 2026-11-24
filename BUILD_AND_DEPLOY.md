@@ -371,3 +371,27 @@ The TV logs nothing about tokens. To see what the TV did: `adb -s <tv-ip>:5555 l
 - **Menu key:** opens the DisplayReport menu; Back returns to the picture at the right position. If the remote has no Menu key, note which key opens it.
 - **New TV while a phone is paired:** the phone shows "Approve this TV?" and the TV says "Approve this TV on your phone".
 - **APK sizes** (release, story 3-4): TV (`--target-platform android-arm`) 19,769,936 bytes (+360,492 over story 3-3), phone 67,955,834 bytes. Story 3-3 was 19,409,444 bytes for the TV; the growth limit is the one in section 12.
+
+## 14. Phone app shell, settings and the idle TV screen (story 4-7)
+
+The phone app has a navigation drawer (Now playing, Devices, Settings, About, **Close app**), a status banner under the app bar while the Pi is away, and a Settings page. The TV shows a quiet clock screen while a phone is paired and nothing plays.
+
+### Where the settings live
+
+- On the Pi, in the SQLite file (`TVSAVER_DB_FILE`, default `~/tvsaver/hub.db`), table `Settings` (database schema version 4; a version 3 file is upgraded in place and keeps everything). One row per key, the value is JSON.
+- Keys and ranges: `imageSeconds` 10 (3-120), `transition` `crossfade` or `cut`, `kenBurns` false, `playWithSound` true, `storageCapBytes` (1 GB-1 TB), `streamingCeilingMbps` (5-500), `tvCacheBytes` (0.5-3 GB).
+- The first time a key is read it starts from the environment (`TVSAVER_STORAGE_CAP_BYTES`, `TVSAVER_STREAM_CEILING_MBPS`, `TVSAVER_TV_CACHE_BYTES`) or the default above. After the owner changes it in the app, the stored value wins and the environment variable is ignored for that key. To go back, delete the row (`sqlite3 ~/tvsaver/hub.db "delete from settings where key='streamingCeilingMbps'"`) and restart the service.
+- The storage cap, the streaming ceiling and the TV cache size are read live: a change in the app applies to the next upload and the next worker job without restarting the service. Videos stored earlier keep the "plays after caching" flag they got when they were checked. Lowering the storage cap below what is used keeps every file; new uploads get `507 full`.
+- `imageSeconds`, `transition`, `kenBurns` and `playWithSound` are stored and sent to every phone; the TV does not use them until the playlist story (4-4).
+
+### Deploy and check
+
+```bash
+(cd packages/hub_core && dart run build_runner build --delete-conflicting-outputs && dart analyze && dart test)
+PI_HOST=<pi-ip> bash tool/pi/deploy_server.sh
+flutter build apk --release --flavor tv -t lib/main_tv.dart --target-platform android-arm
+flutter build apk --release --flavor phone -t lib/main_phone.dart
+```
+
+Manual checks (Kay): open the drawer and look at the status line; as owner change the streaming limit and see a second phone follow; try 9999 and see the reason under the field; rename a phone; as a controller see the controls disabled with "Only the owner can change this"; **Close app** leaves the app and a relaunch reconnects; look at the idle TV screen for a few minutes (the clock group drifts about once a minute) and start a clip (the clock disappears at once).
+

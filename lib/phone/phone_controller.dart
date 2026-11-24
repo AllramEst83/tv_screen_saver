@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:hub_core/hub_core.dart';
 
 import '../shared/multicast_lock.dart';
@@ -16,6 +17,33 @@ enum QrOutcome {
 
   /// A connection attempt started: leave the scanner and watch the state.
   started,
+}
+
+/// How the phone is linked to the Pi, for the drawer header and the banner.
+enum LinkStatus {
+  /// Connected and the TV is there.
+  connected,
+
+  /// Connected to the Pi, but the TV is not connected to it.
+  tvOff,
+
+  /// The connection dropped and the app is trying again.
+  reconnecting,
+
+  /// The Pi did not answer; the app stops trying until Retry.
+  offline,
+}
+
+/// The outcome of a settings or rename request.
+class ChangeResult {
+  const ChangeResult.ok() : ok = true, field = null, message = null;
+  const ChangeResult.failed(this.message, {this.field}) : ok = false;
+
+  final bool ok;
+
+  /// The setting key the message belongs to, when the Pi named one.
+  final String? field;
+  final String? message;
 }
 
 /// A TV that waits for a phone to approve it (`devices.approvalRequested`).
@@ -59,6 +87,15 @@ class PhoneController extends ChangeNotifier {
   bool _tvNotConnected = false;
   String? _playerError;
   PendingApproval? _approval;
+  bool _wasConnected = false;
+  bool _closing = false;
+  Map<String, Object?> _settings = const {};
+  Map<String, Map<String, int>> _limits = const {};
+  final Map<String, String> _itemNames = {};
+  final Map<String, int> _itemBytes = {};
+  final Map<String, int> _itemDurations = {};
+  int _usedBytes = 0;
+  bool _hasLibrary = false;
 
   HubClientState get hub => client.state.value;
 
@@ -67,7 +104,16 @@ class PhoneController extends ChangeNotifier {
 
   List<DeviceInfo> get devices => _devices;
 
-  DeviceInfo? get me => hub.device;
+  /// This phone, with the name and role the Pi lists now (a rename shows up
+  /// here without reconnecting).
+  DeviceInfo? get me {
+    final mine = hub.device;
+    if (mine == null) return null;
+    for (final d in _devices) {
+      if (d.id == mine.id) return d;
+    }
+    return mine;
+  }
 
   bool get lockHeld => _lockHeld;
 
@@ -92,9 +138,59 @@ class PhoneController extends ChangeNotifier {
     return switch (hub.phase) {
       HubConnectionPhase.connected => PhoneScreen.home,
       HubConnectionPhase.awaitingPin => PhoneScreen.pin,
+      // A phone that was connected stays in the app while the link comes
+      // back; the banner says what is going on.
+      HubConnectionPhase.connecting ||
+      HubConnectionPhase.reconnecting ||
+      HubConnectionPhase.offline ||
+      HubConnectionPhase.appNotOpen when _wasConnected && _hasPairing =>
+        PhoneScreen.home,
       _ => PhoneScreen.connect,
     };
   }
+
+  /// The link to the Pi, for the drawer header and the status banner.
+  LinkStatus get linkStatus => switch (hub.phase) {
+    HubConnectionPhase.connected =>
+      tvNotConnected ? LinkStatus.tvOff : LinkStatus.connected,
+    HubConnectionPhase.connecting ||
+    HubConnectionPhase.reconnecting => LinkStatus.reconnecting,
+    _ => LinkStatus.offline,
+  };
+
+  /// Settings are readable but cannot be changed while the Pi is away.
+  bool get isLinked => hub.phase == HubConnectionPhase.connected;
+
+  /// Only the owner (or the TV) may change settings, and only while linked.
+  bool get canChangeSettings => isLinked && (me?.isOwnerEquivalent ?? false);
+
+  bool get isOwner => me?.isOwner ?? false;
+
+  /// The Pi's stored settings (`settings` module); empty until the first
+  /// snapshot.
+  Map<String, Object?> get settings => _settings;
+  bool get hasSettings => _settings.isNotEmpty;
+
+  int? settingInt(String key) => _settings[key] as int?;
+  bool settingBool(String key, {bool or = false}) =>
+      _settings[key] as bool? ?? or;
+  String? settingString(String key) => _settings[key] as String?;
+
+  /// `{min, max}` the Pi accepts for [key], or null.
+  Map<String, int>? limitFor(String key) => _limits[key];
+
+  /// Bytes the library (and unfinished uploads) take on the Pi.
+  int get storageUsedBytes => _usedBytes;
+  bool get hasLibrary => _hasLibrary;
+
+  /// The name of a library item; the id when it is not known.
+  String nameOfItem(String id) => _itemNames[id] ?? id;
+
+  /// Length of a library video in milliseconds, or null (photo, unknown).
+  int? durationOf(String id) => _itemDurations[id];
+
+  /// The Pi says no TV is connected (not just a failed command).
+  bool get displayKnownOffline => _displayOnline == false;
 
   /// Status line for the Connect screen, per [HubConnectionPhase].
   String get statusText {
@@ -115,6 +211,90 @@ class PhoneController extends ChangeNotifier {
                 : 'Scan the QR code on the TV to pair this phone.'),
       _ => '',
     };
+  }
+
+  static const _unreachable = "Couldn't reach the Pi. Try again.";
+
+  /// Changes settings on the Pi (owner only). A refusal names the field.
+  Future<ChangeResult> updateSettings(Map<String, Object?> patch) async {
+    try {
+      final r = await client.request('settings.update', patch);
+      final values = r['values'];
+      if (values is Map) {
+        _settings = {..._settings, ...Map<String, Object?>.from(values)};
+        if (!_disposed) notifyListeners();
+      }
+      return const ChangeResult.ok();
+    } on HubError catch (e) {
+      final field = e.extra['field'];
+      return ChangeResult.failed(
+        e.code == HubErrorCode.forbidden
+            ? 'Only the owner can change this'
+            : (e.message ?? 'The change was refused'),
+        field: field is String ? field : null,
+      );
+    } catch (_) {
+      return const ChangeResult.failed(_unreachable);
+    }
+  }
+
+  /// Renames this phone (1-40 characters after trimming).
+  Future<ChangeResult> renameThisPhone(String raw) async {
+    final name = raw.trim();
+    if (name.isEmpty) return const ChangeResult.failed('Enter a name');
+    if (name.length > maxDeviceNameLength) {
+      return const ChangeResult.failed(
+        'Use $maxDeviceNameLength characters or fewer',
+      );
+    }
+    try {
+      await client.request('device.rename', {'name': name});
+      return const ChangeResult.ok();
+    } on HubError catch (e) {
+      return ChangeResult.failed(e.message ?? 'The name was refused');
+    } catch (_) {
+      return const ChangeResult.failed(_unreachable);
+    }
+  }
+
+  static const maxDeviceNameLength = 40;
+
+  /// Removes another phone's pairing (owner only).
+  Future<ChangeResult> forgetDevice(String deviceId) async {
+    try {
+      await client.request('device.forget', {'deviceId': deviceId});
+      return const ChangeResult.ok();
+    } on HubError catch (e) {
+      return ChangeResult.failed(e.message ?? 'The phone was not removed');
+    } catch (_) {
+      return const ChangeResult.failed(_unreachable);
+    }
+  }
+
+  /// Removes every phone pairing, this one included (owner only).
+  Future<ChangeResult> forgetAllPhones() async {
+    try {
+      await client.request('devices.forgetAll');
+      return const ChangeResult.ok();
+    } on HubError catch (e) {
+      return ChangeResult.failed(e.message ?? 'The phones were not removed');
+    } catch (_) {
+      return const ChangeResult.failed(_unreachable);
+    }
+  }
+
+  /// Close app: releases the multicast lock, disconnects and leaves. The
+  /// pairing stays saved, so the next launch reconnects by itself.
+  Future<void> closeApp() async {
+    _closing = true;
+    if (_lockHeld) {
+      _lockHeld = false;
+      await _lock.release();
+    }
+    try {
+      await client.disconnect();
+    } catch (_) {}
+    await SystemNavigator.pop();
   }
 
   /// Whether the Connect screen is busy trying (spinner, no Retry).
@@ -168,6 +348,13 @@ class PhoneController extends ChangeNotifier {
   /// not be held while paused.
   void setForeground(bool value) {
     _foreground = value;
+    if (value && _closing) {
+      // The activity survived Close app: connect again.
+      _closing = false;
+      if (_hasPairing) {
+        unawaited(_guarded(() async => client.reconnectSavedHub()));
+      }
+    }
     _syncLock();
   }
 
@@ -292,10 +479,19 @@ class PhoneController extends ChangeNotifier {
   }
 
   void _onHubState() {
-    if (hub.phase == HubConnectionPhase.connected) {
+    final phase = hub.phase;
+    if (phase == HubConnectionPhase.connected) {
       _hasPairing = true;
-    } else {
-      _devices = const [];
+      _wasConnected = true;
+    } else if (phase != HubConnectionPhase.connecting &&
+        phase != HubConnectionPhase.reconnecting &&
+        phase != HubConnectionPhase.offline &&
+        phase != HubConnectionPhase.appNotOpen) {
+      _wasConnected = false;
+    }
+    if (phase != HubConnectionPhase.connected) {
+      // Keep the last list while the link comes back.
+      if (!_wasConnected) _devices = const [];
       if (!hub.knownPairing && hub.phase != HubConnectionPhase.connecting) {
         unawaited(_refreshPairing());
       }
@@ -308,6 +504,7 @@ class PhoneController extends ChangeNotifier {
     final phase = hub.phase;
     final want =
         _foreground &&
+        !_closing &&
         (_scanning ||
             phase == HubConnectionPhase.connecting ||
             phase == HubConnectionPhase.reconnecting ||
@@ -330,6 +527,8 @@ class PhoneController extends ChangeNotifier {
     if (display is Map && display['online'] is bool) {
       _setDisplayOnline(display['online'] as bool);
     }
+    _readSettings(modules is Map ? modules['settings'] : null);
+    _readLibrary(modules is Map ? modules['library'] : null);
     if (!_disposed) notifyListeners();
   }
 
@@ -358,11 +557,85 @@ class PhoneController extends ChangeNotifier {
         if (player == null) return;
         _nowPlaying = player;
         if (!_disposed) notifyListeners();
+      case 'settings.changed':
+        final values = data is Map ? data['values'] : null;
+        if (values is Map) {
+          _settings = {..._settings, ...Map<String, Object?>.from(values)};
+          if (!_disposed) notifyListeners();
+        }
+      case 'library.added':
+      case 'library.updated':
+        _noteItem(data, added: ev['kind'] == 'library.added');
+        if (!_disposed) notifyListeners();
+      case 'library.removed':
+        final id = data is Map ? data['id'] : null;
+        if (id is String) {
+          _itemNames.remove(id);
+          _itemDurations.remove(id);
+          _usedBytes -= _itemBytes.remove(id) ?? 0;
+          if (_usedBytes < 0) _usedBytes = 0;
+          if (!_disposed) notifyListeners();
+        }
       case 'display.changed':
         if (data is Map && data['online'] is bool) {
           _setDisplayOnline(data['online'] as bool);
           if (!_disposed) notifyListeners();
         }
+    }
+  }
+
+  void _readSettings(Object? raw) {
+    if (raw is! Map) return;
+    final values = raw['values'];
+    if (values is Map) _settings = Map<String, Object?>.from(values);
+    final limits = raw['limits'];
+    if (limits is Map) {
+      _limits = {
+        for (final e in limits.entries)
+          if (e.value is Map && e.value['min'] is int && e.value['max'] is int)
+            '${e.key}': {
+              'min': e.value['min'] as int,
+              'max': e.value['max'] as int,
+            },
+      };
+    }
+  }
+
+  void _readLibrary(Object? raw) {
+    if (raw is! Map) return;
+    _itemNames.clear();
+    _itemBytes.clear();
+    _itemDurations.clear();
+    final items = raw['items'];
+    if (items is List) {
+      for (final i in items) {
+        _noteItem(i, added: false);
+      }
+    }
+    final storage = raw['storage'];
+    if (storage is Map && storage['usedBytes'] is int) {
+      _usedBytes = storage['usedBytes'] as int;
+    }
+    _hasLibrary = true;
+  }
+
+  void _noteItem(Object? raw, {required bool added}) {
+    if (raw is! Map) return;
+    final id = raw['id'];
+    if (id is! String) return;
+    final name = raw['name'];
+    if (name is String && name.isNotEmpty) _itemNames[id] = name;
+    final duration = raw['durationMs'];
+    if (duration is int && duration > 0) {
+      _itemDurations[id] = duration;
+    } else {
+      _itemDurations.remove(id);
+    }
+    final bytes = raw['bytes'];
+    if (bytes is int) {
+      final old = _itemBytes[id];
+      if (added && old == null) _usedBytes += bytes;
+      _itemBytes[id] = bytes;
     }
   }
 

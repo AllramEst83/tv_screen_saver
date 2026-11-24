@@ -60,10 +60,13 @@ Future<void> untilAsync(
 
 /// A real in-process hub (in-memory database, loopback socket).
 class Rig {
-  Rig._(this.db, this.server, this.display, this.player);
+  Rig._(this.db, this.server, this.display, this.player, this.settings);
 
   final HubDatabase db;
   final HubServer server;
+
+  /// Set when the rig was started with `withSettings`.
+  final SettingsStore? settings;
 
   /// Set when the rig was started with `playlists`.
   final DisplayModule? display;
@@ -73,6 +76,7 @@ class Rig {
     int port = 0,
     String? dbFile,
     PlaylistSource? playlists,
+    bool withSettings = false,
   }) async {
     final db = dbFile == null
         ? HubDatabase.inMemory()
@@ -101,8 +105,17 @@ class Rig {
       server.registerModule(display);
       server.registerModule(player);
     }
+    SettingsStore? settings;
+    if (withSettings) {
+      settings = SettingsStore(
+        db: db,
+        config: ServerConfig(mediaDir: 'unused', tokenFile: 'unused'),
+      );
+      await settings.load();
+      server.registerModule(SettingsModule(settings));
+    }
     await server.start();
-    return Rig._(db, server, display, player);
+    return Rig._(db, server, display, player, settings);
   }
 
   /// Opens a pairing session and returns its QR URI.

@@ -14,6 +14,8 @@ import 'server/library_module.dart';
 import 'server/library_store.dart';
 import 'server/player_module.dart';
 import 'server/playlist_source.dart';
+import 'server/settings_module.dart';
+import 'server/settings_store.dart';
 import 'tv_store.dart';
 
 const serverVersion = 1;
@@ -59,6 +61,10 @@ class PiServer {
   /// Items, uploads and the files behind them.
   final LibraryStore library;
 
+  /// Persistent settings; the live storage cap, streaming ceiling and TV
+  /// cache cap in [config] follow it.
+  late final SettingsStore settings = SettingsStore(db: db, config: config);
+
   final PlaylistSource? _playlists;
 
   /// Until story 4-4 this is the `all` playlist: the library's videos.
@@ -91,6 +97,8 @@ class PiServer {
         onForgetAllPhones: hub.forgetAllPhones,
       ),
     );
+    await settings.load();
+    hub.registerModule(SettingsModule(settings));
     hub.registerModule(LibraryModule(library));
     final displayModule = DisplayModule(
       db: db,
@@ -115,6 +123,7 @@ class PiServer {
     library.onItemRemoved = null;
     await library.stop();
     library.capabilities = null;
+    await settings.dispose();
     await _hub?.stop();
     if (_ownsDb) await db.close();
   }
