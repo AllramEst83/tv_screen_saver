@@ -201,11 +201,12 @@ Good to know:
 
 ### Pairing, roles and recovery (story 3-2)
 
-- **Roles:** the TV is the `display` (never owner; its requests count as owner-equivalent). The first paired phone is `owner`, later phones are `controller`. At most 8 connections: 1 display plus 7 phones.
+- **Roles:** the TV is the `display` (never owner; its requests count as owner-equivalent). The first paired phone is `owner`, later phones are `controller`. Connection cap: 1 display plus up to `maxClients-1` phones (8 connections by default, so 7 phones); the next phone gets `err conflict`.
 - **First display:** while no display is paired, the first TV that says `hello {kind: "display"}` is accepted without a PIN and gets a token. A second TV while the first is connected gets `err conflict`.
 - **New or wiped TV:** if a display is already paired but offline and at least one phone is paired, the new TV waits up to 120 s for any paired phone to send `devices.approveDisplay {requestId}`; on timeout it gets `err timeout`. If no phone is paired, the new TV is accepted and replaces the old display.
 - **Phone pairing:** the TV sends `devices.startPairing`; the Pi then streams `display.pairing {qr, pin, expiresAt}` to the TV on every rotation and after each pairing (`devices.cancelPairing` stops it). Codes are single use and last 120 s; 3 wrong tries lock pairing for 60 s. A phone that tries to pair while no session is open gets `err unavailable`.
-- **Owner phone lost:** on the TV send `devices.forgetAll` (the owner can too). All phone pairings are deleted and their sockets closed; the TV stays connected and the next phone to pair is owner.
+- **Owner phone lost:** on the TV send `devices.forgetAll` (the owner can too). All phone pairings are deleted and their sockets closed; the TV stays connected and the next phone to pair is owner. A controller gets `err forbidden` for `devices.forgetAll`.
+- **Threat model:** while no display is paired, or no phone is paired, any host on the LAN can claim the display role. This is accepted because physical presence is the only proof left; it is for a home LAN only.
 - **Last resort, over SSH on the Pi:**
 
 ```bash

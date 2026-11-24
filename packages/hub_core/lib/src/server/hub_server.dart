@@ -48,6 +48,7 @@ class HubServer {
     this.maxClients = 8,
     this.idleTimeout = const Duration(seconds: 20),
     this.pairingTimeout = const Duration(seconds: 120),
+    this.pairCodeTtl = const Duration(seconds: 120),
     Random? random,
     DateTime Function()? now,
   }) : _random = random ?? Random.secure(),
@@ -69,12 +70,14 @@ class HubServer {
   final int maxClients;
   final Duration idleTimeout;
   final Duration pairingTimeout;
+
+  /// Lifetime of one QR code and PIN before they rotate.
+  final Duration pairCodeTtl;
   final Random _random;
   final DateTime Function() _now;
 
   static const maxPairAttempts = 3;
   static const pairLockout = Duration(seconds: 60);
-  static const pairCodeTtl = Duration(seconds: 120);
   static const _maxOpCacheSize = 500;
 
   /// Current pairing credentials shown on the TV pairing dialog (or null).
@@ -176,6 +179,19 @@ class HubServer {
     _rotateTimer?.cancel();
     _rotateTimer = null;
     pairingCredentials.value = null;
+    // Phones waiting for a PIN must not hang.
+    for (final c in [..._connections]) {
+      if (c.pairing && !c.ready) {
+        c.pairing = false;
+        _send(c, HubMsg.err, {
+          'code': HubErrorCode.unavailable,
+          'msg': 'Pairing was closed on the TV.',
+        });
+        try {
+          c.socket.close();
+        } catch (_) {}
+      }
+    }
   }
 
   /// `devices.startPairing`: opens a session whose credentials are relayed to
@@ -199,8 +215,16 @@ class HubServer {
     if (id == null || creds == null) return;
     for (final c in _connections) {
       if (c.id != id || !c.ready) continue;
-      final qr = currentQrUri(c.localHost ?? '127.0.0.1');
-      if (qr == null) return;
+      final host = c.localHost;
+      if (host == null) {
+        _send(c, HubMsg.err, {
+          'code': HubErrorCode.unavailable,
+          'msg': 'The Pi has no LAN address to put in the QR code',
+        });
+        continue;
+      }
+      final qr = currentQrUri(host);
+      if (qr == null) continue;
       _send(c, 'display.pairing', {
         'qr': qr,
         'pin': creds.pin,
@@ -294,7 +318,7 @@ class HubServer {
 
   /// Forgets every paired device (phones and display) and drops all sockets.
   /// Their tokens stop working. Used by the admin reset.
-  Future<void> resetAll() async {
+  Future<void> resetAll() => _withLock(() async {
     closePairingSession();
     for (final w in _waitingDisplays.values) {
       w.timer.cancel();
@@ -312,7 +336,7 @@ class HubServer {
     }
     _connections.clear();
     await _notifyPresence();
-  }
+  });
 
   /// Same as [resetAll].
   Future<void> forgetPairings() => resetAll();
@@ -320,35 +344,61 @@ class HubServer {
   /// `devices.forgetAll`: deletes every phone pairing and closes phone
   /// sockets. The display stays connected. The caller's own socket (an owner
   /// phone) closes right after its reply went out.
-  Future<void> forgetAllPhones([String? callerConnectionId]) async {
-    _tokenCache.removeWhere((_, d) => !d.isDisplay);
-    await db.deleteAllPhones();
-    _tokenCache.removeWhere((_, d) => !d.isDisplay);
-    _HubConnection? caller;
-    for (final c in [..._connections]) {
-      if (c.isDisplay) continue;
-      final dev = c.device;
-      if (dev == null) continue; // Still pairing: no device to forget.
-      c.revoked = true;
-      _connections.remove(c);
-      c.idle?.cancel();
-      if (c.id == callerConnectionId) {
-        caller = c;
-        continue;
-      }
-      try {
-        await c.socket.close(WebSocketStatus.policyViolation);
-      } catch (_) {}
-    }
-    await _notifyPresence();
-    if (caller != null) {
-      // After this handler returns, so the reply still reaches the phone.
-      Timer(Duration.zero, () {
-        try {
-          caller!.socket.close(WebSocketStatus.policyViolation);
-        } catch (_) {}
+  Future<void> forgetAllPhones([String? callerConnectionId]) =>
+      _withLock(() async {
+        _tokenCache.removeWhere((_, d) => !d.isDisplay);
+        await db.deleteAllPhones();
+        _tokenCache.removeWhere((_, d) => !d.isDisplay);
+        _HubConnection? caller;
+        for (final c in [..._connections]) {
+          if (c.isDisplay || c.wantsDisplay) continue;
+          // Phones still mid-pairing (no device yet) are closed too.
+          c.revoked = true;
+          _connections.remove(c);
+          c.idle?.cancel();
+          if (c.id == callerConnectionId) {
+            caller = c;
+            continue;
+          }
+          try {
+            await c.socket.close(WebSocketStatus.policyViolation);
+          } catch (_) {}
+        }
+        await _releaseWaitingDisplay();
+        await _notifyPresence();
+        if (caller != null) {
+          // After this handler returns, so the reply still reaches the phone.
+          Timer(Duration.zero, () {
+            try {
+              caller!.socket.close(WebSocketStatus.policyViolation);
+            } catch (_) {}
+          });
+        }
       });
+
+  /// With no phone left to approve, a waiting TV is admitted (physical
+  /// presence is the only proof). Callers hold the issue lock.
+  Future<void> _releaseWaitingDisplay() async {
+    if (_waitingDisplays.isEmpty || await db.phoneCount() > 0) return;
+    final id = _waitingDisplays.keys.first;
+    final w = _endWaiting(id);
+    if (w == null || w.conn.socket.readyState != WebSocket.open) return;
+    _watchIdle(w.conn, pairingTimeout);
+    await _issueDevice(w.conn, display: true);
+  }
+
+  /// Ends a waiting request: stops its timer and tells phones to drop it.
+  _WaitingDisplay? _endWaiting(String requestId) {
+    final w = _waitingDisplays.remove(requestId);
+    if (w == null) return null;
+    w.timer.cancel();
+    w.conn.waitingApproval = false;
+    for (final o in _connections) {
+      if (o.ready && o.device != null && !o.device!.isDisplay) {
+        _send(o, 'devices.approvalCancelled', {'requestId': requestId});
+      }
     }
+    return w;
   }
 
   /// Forgets one device: deletes its pairings and closes its sockets.
@@ -367,6 +417,7 @@ class HubServer {
       }
     }
     await _notifyPresence();
+    await _withLock(_releaseWaitingDisplay);
   }
 
   /// Lets the in-process TV UI (D-pad) invoke any registered handler as the
@@ -497,24 +548,38 @@ class HubServer {
     await request.response.close();
   }
 
-  /// Address of this hub as the client reached it: the Host header when it is
-  /// an IP literal, else the local IPv4 address in the client's /24.
+  /// IPv4 address to put in the QR code for this client: the Host header when
+  /// it is an IPv4 literal, 127.0.0.1 for loopback clients, else the local
+  /// address in the client's /24, else the first non-loopback IPv4 address.
+  /// Null when the Pi has none.
   Future<String?> _localHostFor(HttpRequest request) async {
-    final host = request.requestedUri.host;
-    if (InternetAddress.tryParse(host) != null) return host;
-    final remote = request.connectionInfo?.remoteAddress;
-    if (remote == null) return null;
-    if (remote.isLoopback) return InternetAddress.loopbackIPv4.address;
     try {
-      final r = remote.rawAddress;
-      for (final i in await NetworkInterface.list(
+      final lit = InternetAddress.tryParse(request.requestedUri.host);
+      if (lit != null &&
+          lit.type == InternetAddressType.IPv4 &&
+          !lit.isMulticast &&
+          lit.address != '0.0.0.0') {
+        return lit.address;
+      }
+      final remote = request.connectionInfo?.remoteAddress;
+      if (remote != null && remote.isLoopback) {
+        return InternetAddress.loopbackIPv4.address;
+      }
+      final interfaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,
-      )) {
-        for (final a in i.addresses) {
-          final b = a.rawAddress;
-          if (r.length == 4 && b[0] == r[0] && b[1] == r[1] && b[2] == r[2]) {
-            return a.address;
+      );
+      if (remote != null && remote.type == InternetAddressType.IPv4) {
+        final r = remote.rawAddress;
+        for (final i in interfaces) {
+          for (final a in i.addresses) {
+            final b = a.rawAddress;
+            if (b[0] == r[0] && b[1] == r[1] && b[2] == r[2]) return a.address;
           }
+        }
+      }
+      for (final i in interfaces) {
+        for (final a in i.addresses) {
+          if (!a.isLoopback) return a.address;
         }
       }
     } catch (_) {}
@@ -553,11 +618,12 @@ class HubServer {
     c.idle?.cancel();
     final wasReady = c.ready;
     _connections.remove(c);
-    _waitingDisplays.removeWhere((_, w) {
-      if (w.conn != c) return false;
-      w.timer.cancel();
-      return true;
-    });
+    for (final id in [
+      for (final e in _waitingDisplays.entries)
+        if (e.value.conn == c) e.key,
+    ]) {
+      _endWaiting(id);
+    }
     if (_pairingDisplayConnId == c.id) closePairingSession();
     _updatePairingVisibility();
     if (wasReady) {
@@ -610,7 +676,18 @@ class HubServer {
     String type,
     Map<String, dynamic> msg,
   ) async {
+    if (c.waitingApproval && type != HubMsg.ping) return;
     if (type == HubMsg.hello) {
+      final kind = msg['kind'];
+      if (kind != null && kind != 'phone' && kind != 'display') {
+        _send(c, HubMsg.err, {
+          if (msg['rid'] != null) 'rid': msg['rid'],
+          'code': HubErrorCode.invalid,
+          'msg': 'Unknown device kind',
+        });
+        await c.socket.close();
+        return;
+      }
       final rawV = msg['v'];
       final clientVer = rawV == null
           ? 1
@@ -639,7 +716,8 @@ class HubServer {
       }
       if (c.waitingApproval) return; // A display is already waiting.
       c.helloDone = true;
-      final isDisplayHello = msg['kind'] == 'display';
+      final isDisplayHello = kind == 'display';
+      c.wantsDisplay = isDisplayHello;
       final rawName = msg['client'];
       c.clientName = (rawName is String && rawName.trim().isNotEmpty)
           ? rawName.trim()
@@ -781,9 +859,13 @@ class HubServer {
       return;
     }
     final online = _connections.any(
-      (o) => o != c && o.ready && (o.device?.isDisplay ?? false),
+      (o) =>
+          o != c &&
+          (o.device?.isDisplay ?? false) &&
+          o.socket.readyState == WebSocket.open,
     );
-    if (online) {
+    // Only one TV may wait for approval at a time.
+    if (online || _waitingDisplays.isNotEmpty) {
       _send(c, HubMsg.err, {
         'code': HubErrorCode.conflict,
         'msg': 'A TV is already connected',
@@ -800,8 +882,7 @@ class HubServer {
     c.waitingApproval = true;
     c.idle?.cancel();
     final timer = Timer(pairingTimeout, () async {
-      if (_waitingDisplays.remove(requestId) == null) return;
-      c.waitingApproval = false;
+      if (_endWaiting(requestId) == null) return;
       _send(c, HubMsg.err, {
         'code': HubErrorCode.timeout,
         'msg': 'No phone approved this TV in time',
@@ -825,14 +906,18 @@ class HubServer {
   /// `devices.approveDisplay`: a paired phone lets the waiting TV in. Returns
   /// false when the request is unknown or expired.
   Future<bool> approveDisplay(String requestId) async {
-    final w = _waitingDisplays.remove(requestId);
+    final w = _endWaiting(requestId);
     if (w == null) return false;
-    w.timer.cancel();
     final c = w.conn;
-    c.waitingApproval = false;
     if (c.socket.readyState != WebSocket.open) return false;
     _watchIdle(c, pairingTimeout);
     await _withLock(() => _issueDevice(c, display: true));
+    if (!c.ready) {
+      throw const HubError(
+        HubErrorCode.conflict,
+        'The TV could not be admitted',
+      );
+    }
     return true;
   }
 
@@ -1277,6 +1362,9 @@ class _HubConnection {
 
   /// A display that waits for a phone to approve it (no idle timeout).
   bool waitingApproval = false;
+
+  /// The hello said `kind: display` (set before the device is known).
+  bool wantsDisplay = false;
 
   /// Local address of the socket, used as the QR host for the display.
   String? localHost;

@@ -11,7 +11,9 @@ Built on the connection spec's framing (`<module>.<action>` requests with `rid`/
 | `settings` | `settings.update {…}` (cache cap, storage cap, streaming ceiling, default image seconds, transition) | `settings.changed` | yes |
 | `display` (display only) | `display.capabilities {decoders[], hdr[], render, panel}` on every connect | stored per display | — |
 | `display` (Pi → TV, targeted) | — | `display.load {itemId, variant, startAt}`, `display.prefetch {itemIds[]}`, `display.pairing {qr, pin, expiresAt}` | — |
-| `devices` | from the connection spec: rename, forget, forget all (also from the remote: hold Back 10 s); `devices.approveDisplay` (any paired phone); `devices.startPairing` / `devices.cancelPairing` (display only) | from the connection spec | forget, forget all |
+| `devices` | `hello {kind?: "phone"\|"display"}` (absent = phone; any other value is `err invalid`); rename, forget, `devices.forgetAll` (owner or display; also from the remote: hold Back 10 s; a controller gets `err forbidden`); `devices.approveDisplay {requestId}` (any paired phone; `not_found` once the request ended, `conflict` if the TV could not be admitted); `devices.startPairing` / `devices.cancelPairing` (display only) | from the connection spec; targeted: `devices.approvalRequested {requestId, name}` and `devices.approvalCancelled {requestId}` to phones (approved, timed out or the TV left), `display.pairing {qr, pin, expiresAt}` to the display on start, every rotation and after each pairing | forget, forget all |
+
+Errors on this path: `unavailable` (phone pairs while no session is open, or the Pi has no LAN address for the QR), `timeout` (no phone approved the waiting TV in time, 120 s), `conflict` (a TV is already connected or waiting, or the 7-phone cap is reached), `invalid` (unknown `kind`).
 
 - Defaults: `muted: false` (video sound plays), `kenBurns: false`, `transition: crossfade`. Volume stays on the TV remote.
 - `player.setMuted` overrides the playlist flag until the next `player.play`.

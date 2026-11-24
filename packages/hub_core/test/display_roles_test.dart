@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:hub_core/hub_core.dart';
 import 'package:test/test.dart';
@@ -338,6 +339,174 @@ void main() {
       expect(await rig.db.nextDeviceRole(), 'owner');
       await rig.onboardDisplay();
       expect(await rig.db.nextDeviceRole(), 'owner');
+    });
+  });
+
+  group('Review fixes', () {
+    late TestHubRig rig;
+
+    setUp(() async => rig = await TestHubRig.start());
+    tearDown(() => rig.dispose());
+
+    test('QR codes rotate on their own after the TTL', () async {
+      await rig.dispose();
+      rig = await TestHubRig.start(
+        pairCodeTtl: const Duration(milliseconds: 200),
+      );
+      final tv = await rig.onboardDisplay();
+      final first = await tv.startPairing();
+      final next = await tv.waitFor(
+        (m) => m['t'] == 'display.pairing' && m['qr'] != first['qr'],
+      );
+      expect(next['pin'], isNot(first['pin']));
+    });
+
+    test('a phone that connects after the TV hello gets the request', () async {
+      final oldTv = await rig.onboardDisplay();
+      final phone = await rig.onboardPhone('Owner');
+      await oldTv.close();
+      await phone.close();
+      await until(() => rig.server.readyClientCount == 0);
+
+      final newTv = await rig.connectDisplay();
+      newTv.sendDisplayHello(client: 'New TV');
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      final back = await rig.connectPhone();
+      await back.helloWithToken(phone.token!);
+      final req = await back.waitFor(
+        (m) => m['t'] == 'devices.approvalRequested',
+      );
+      final ok = await back.request('devices.approveDisplay', {
+        'requestId': req['requestId'],
+      });
+      expect(ok['t'], HubMsg.ok);
+      await newTv.expectType(HubMsg.paired);
+      await newTv.expectType(HubMsg.ready);
+    });
+
+    test('a waiting TV that disconnects cancels the request', () async {
+      final oldTv = await rig.onboardDisplay();
+      final phone = await rig.onboardPhone('Owner');
+      await oldTv.close();
+      await until(() => rig.server.readyClientCount == 1);
+
+      final newTv = await rig.connectDisplay();
+      newTv.sendDisplayHello();
+      final req = await phone.waitFor(
+        (m) => m['t'] == 'devices.approvalRequested',
+      );
+      await newTv.close();
+      final cancelled = await phone.waitFor(
+        (m) => m['t'] == 'devices.approvalCancelled',
+      );
+      expect(cancelled['requestId'], req['requestId']);
+      final r = await phone.request('devices.approveDisplay', {
+        'requestId': req['requestId'],
+      });
+      expect(r['code'], HubErrorCode.notFound);
+    });
+
+    test('only one TV waits; its other frames are ignored', () async {
+      final oldTv = await rig.onboardDisplay();
+      await rig.onboardPhone('Owner');
+      await oldTv.close();
+      await until(() => rig.server.readyClientCount == 1);
+
+      final first = await rig.connectDisplay();
+      first.sendDisplayHello();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      first.send('device.rename', {'name': 'x'});
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(first.closed, isFalse);
+
+      final second = await rig.connectDisplay();
+      second.sendDisplayHello();
+      expect((await second.expectType(HubMsg.err))['code'], 'conflict');
+    });
+
+    test('a waiting TV is admitted when the last phone is forgotten', () async {
+      final oldTv = await rig.onboardDisplay();
+      final phone = await rig.onboardPhone('Owner');
+      await oldTv.close();
+      await until(() => rig.server.readyClientCount == 1);
+
+      final newTv = await rig.connectDisplay();
+      newTv.sendDisplayHello();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect((await phone.request('devices.forgetAll'))['t'], HubMsg.ok);
+      await newTv.expectType(HubMsg.paired);
+      await newTv.expectType(HubMsg.ready);
+      expect(await rig.db.displays(), hasLength(1));
+    });
+
+    test('an unknown hello kind is rejected', () async {
+      final p = await rig.connectPhone();
+      p.send(HubMsg.hello, {'v': kProtocolVersion, 'kind': 'toaster'});
+      expect((await p.expectType(HubMsg.err))['code'], HubErrorCode.invalid);
+      await until(() => p.closed);
+    });
+
+    test('closing the session releases phones waiting for a PIN', () async {
+      final tv = await rig.onboardDisplay();
+      await tv.startPairing();
+      final p = await rig.connectPhone();
+      p.send(HubMsg.hello, {'v': kProtocolVersion, 'client': 'Waiting'});
+      await p.expectType(HubMsg.pairRequired);
+      await tv.request('devices.cancelPairing');
+      expect((await p.expectType(HubMsg.err))['code'], 'unavailable');
+      await until(() => p.closed);
+    });
+
+    test(
+      'display + 7 phones: 8th phone conflicts, others unaffected',
+      () async {
+        final tv = await rig.onboardDisplay();
+        final phones = <TestPhone>[];
+        for (var i = 0; i < 7; i++) {
+          phones.add(await rig.onboardPhone('P$i'));
+        }
+        expect(rig.server.readyClientCount, 8);
+        expect(rig.server.connectedPhones.value, 7);
+
+        final pairing = await tv.startPairing();
+        final eighth = await rig.connectPhone();
+        eighth.send(HubMsg.hello, {
+          'v': kProtocolVersion,
+          'pairCode': PairQrData.tryParse(pairing['qr'] as String)!.pairCode,
+        });
+        expect((await eighth.expectType(HubMsg.err))['code'], 'conflict');
+        await until(() => eighth.closed);
+        expect(tv.closed, isFalse);
+        expect(rig.server.readyClientCount, 8);
+
+        // A known phone that drops and comes back is still admitted.
+        await phones[3].close();
+        await until(() => rig.server.connectedPhones.value == 6);
+        final back = await rig.connectPhone();
+        await back.helloWithToken(phones[3].token!);
+        expect(rig.server.connectedPhones.value, 7);
+      },
+    );
+
+    test('the QR host is the non-loopback address the display used', () async {
+      final lan = <String>[];
+      for (final i in await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+      )) {
+        for (final a in i.addresses) {
+          if (!a.isLoopback) lan.add(a.address);
+        }
+      }
+      if (lan.isEmpty) {
+        markTestSkipped('no non-loopback IPv4 address on this machine');
+        return;
+      }
+      final tv = await TestPhone.connectHost(lan.first, rig.server.port);
+      rig.phones.add(tv);
+      await tv.helloAsDisplay();
+      final pairing = await tv.startPairing();
+      expect(PairQrData.tryParse(pairing['qr'] as String)!.host, lan.first);
     });
   });
 }

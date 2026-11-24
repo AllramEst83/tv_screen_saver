@@ -197,7 +197,10 @@ void main() {
   group('admin reset-pairings without a running server', () {
     late Directory dir;
 
-    setUp(() => dir = Directory.systemTemp.createTempSync('hubadmindb'));
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('hubadmindb');
+      File('${dir.path}/token').writeAsStringSync(_token);
+    });
     tearDown(() => dir.deleteSync(recursive: true));
 
     Future<int> freePort() async {

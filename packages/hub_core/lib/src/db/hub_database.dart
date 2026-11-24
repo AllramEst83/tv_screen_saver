@@ -171,20 +171,18 @@ class HubDatabase extends _$HubDatabase {
       );
 
   /// Deletes every device and pairing (phones and display).
-  Future<void> deleteAllPairings() => deleteAllDevices();
-
-  Future<void> deleteAllDevices() async {
+  Future<void> deleteAllDevices() => transaction(() async {
     await delete(pairings).go();
     await delete(devices).go();
-  }
+  });
 
   /// Deletes every phone (non-display) device and its pairings.
-  Future<void> deleteAllPhones() async {
+  Future<void> deleteAllPhones() => transaction(() async {
     final ids = [
       for (final d in await allDevices())
         if (d.role != 'display') d.id,
     ];
     await (delete(pairings)..where((t) => t.deviceId.isIn(ids))).go();
     await (delete(devices)..where((t) => t.id.isIn(ids))).go();
-  }
+  });
 }

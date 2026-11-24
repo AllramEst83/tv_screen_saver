@@ -163,6 +163,9 @@ class TestPhone {
   static Future<TestPhone> connect(int port) async =>
       TestPhone(await WebSocket.connect('ws://127.0.0.1:$port$kWsPath'));
 
+  static Future<TestPhone> connectHost(String host, int port) async =>
+      TestPhone(await WebSocket.connect('ws://$host:$port$kWsPath'));
+
   void send(String type, [Map<String, Object?> fields = const {}]) {
     socket.add(encodeFrame(type, fields));
   }
@@ -305,6 +308,7 @@ class TestHubRig {
     int maxClients = 8,
     Duration idleTimeout = const Duration(seconds: 20),
     Duration pairingTimeout = const Duration(seconds: 120),
+    Duration pairCodeTtl = const Duration(seconds: 120),
   }) async {
     final clock = FakeClock();
     final counter = CountingInterceptor();
@@ -321,6 +325,7 @@ class TestHubRig {
       maxClients: maxClients,
       idleTimeout: idleTimeout,
       pairingTimeout: pairingTimeout,
+      pairCodeTtl: pairCodeTtl,
     );
     final devices = DevicesModule(
       db: database,
