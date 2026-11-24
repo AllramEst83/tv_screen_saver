@@ -245,7 +245,9 @@ class PlayerModule implements HubModule {
   }
 
   /// Sends `display.load` for [itemId] and then `display.prefetch` for the
-  /// items that follow it. A failing lookup never stops playback.
+  /// items that follow it. `index` and `count` place the item in its playlist
+  /// (for the TV's info overlay) and a playlist of one item sets `loop`, so
+  /// the TV repeats it by itself. A failing lookup never stops playback.
   Future<void> _sendLoad(
     String displayId,
     _Player p,
@@ -255,11 +257,21 @@ class PlayerModule implements HubModule {
     int? index,
   }) async {
     final playlistId = p.playlistId;
-    var extra = const <String, Object?>{};
+    var extra = <String, Object?>{};
+    List<String>? list = ids;
     if (playlistId != null) {
       try {
-        extra = await loadExtras?.call(playlistId, itemId) ?? extra;
+        list ??= await playlists.itemIds(playlistId);
       } catch (_) {}
+      try {
+        extra = {...?await loadExtras?.call(playlistId, itemId)};
+      } catch (_) {}
+      final at = index ?? list?.indexOf(itemId) ?? -1;
+      if (list != null && at >= 0) {
+        extra['index'] = at;
+        extra['count'] = list.length;
+        if (list.length == 1) extra['loop'] = true;
+      }
     }
     display.sendLoad(
       displayId,
@@ -268,25 +280,22 @@ class PlayerModule implements HubModule {
       muted: p.muted,
       extra: extra,
     );
-    if (playlistId == null || prefetchCount <= 0) return;
-    try {
-      final list = ids ?? await playlists.itemIds(playlistId);
-      if (list == null || list.length < 2) return;
-      final at = index ?? list.indexOf(itemId);
-      if (at < 0) return;
-      final next = <String>[];
-      for (var k = 1; k < list.length && next.length < prefetchCount; k++) {
-        final id = list[(at + k) % list.length];
-        if (id != itemId && !next.contains(id)) next.add(id);
-      }
-      if (next.isNotEmpty) {
-        display.sendPrefetch(
-          displayId,
-          itemIds: next,
-          cacheBytes: cacheBytes?.call(),
-        );
-      }
-    } catch (_) {}
+    if (playlistId == null || prefetchCount <= 0 || list == null) return;
+    if (list.length < 2) return;
+    final at = index ?? list.indexOf(itemId);
+    if (at < 0) return;
+    final next = <String>[];
+    for (var k = 1; k < list.length && next.length < prefetchCount; k++) {
+      final id = list[(at + k) % list.length];
+      if (id != itemId && !next.contains(id)) next.add(id);
+    }
+    if (next.isNotEmpty) {
+      display.sendPrefetch(
+        displayId,
+        itemIds: next,
+        cacheBytes: cacheBytes?.call(),
+      );
+    }
   }
 
   /// Goes idle: nothing is playable. The TV is told to clear the picture.

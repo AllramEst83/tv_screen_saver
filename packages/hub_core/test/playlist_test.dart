@@ -244,7 +244,12 @@ void serverExtrasTests() {
 
     test('a video says whether it must be cached first', () async {
       final extras = await server.loadExtras('all', 'b.mp4');
-      expect(extras, {'kind': 'video', 'cacheRequired': true, 'bytes': 500});
+      expect(extras, {
+        'kind': 'video',
+        'name': 'b.mp4',
+        'cacheRequired': true,
+        'bytes': 500,
+      });
     });
 
     test('an unknown item adds nothing', () async {

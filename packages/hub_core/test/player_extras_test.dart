@@ -54,6 +54,27 @@ void main() {
     expect(load['variant'], 'full');
   });
 
+  test(
+    'display.load places the item in its playlist; one item loops',
+    () async {
+      await start();
+      await phone.request('player.play', {'playlistId': 'all', 'index': 2});
+      var load = await tv.waitFor((m) => m['t'] == 'display.load');
+      expect(load['index'], 2);
+      expect(load['count'], 4);
+      expect(load.containsKey('loop'), isFalse);
+      await phone.request('player.play', {'playlistId': 'one'});
+      load = await tv.waitFor(
+        (m) =>
+            m['t'] == 'display.load' &&
+            m['itemId'] == 'a.jpg' &&
+            m['count'] == 1,
+      );
+      expect(load['index'], 0);
+      expect(load['loop'], true);
+    },
+  );
+
   test('display.prefetch names the next items and the cache cap', () async {
     await start();
     await phone.request('player.play', {'playlistId': 'all'});

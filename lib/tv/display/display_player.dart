@@ -31,6 +31,18 @@ class PlayerSnapshot {
       : 'paused';
 }
 
+/// What the remote's info overlay says about the item on screen.
+class ItemInfo {
+  const ItemInfo({this.name, this.index, this.count, this.isImage = false});
+
+  final String? name;
+
+  /// Zero-based place in the playlist and its length, when the Pi said.
+  final int? index;
+  final int? count;
+  final bool isImage;
+}
+
 /// A photo ready to show: the cached file and how to show it.
 class ImageSlot {
   const ImageSlot({
@@ -103,8 +115,26 @@ class DisplayPlayer {
 
   static String _fullVariant() => 'full';
 
+  /// The item on screen plays from a file in the TV cache.
+  bool get fromCache => _url?.startsWith('file:') ?? image.value != null;
+
   /// The photo on screen, or null while a clip (or nothing) plays.
   final ValueNotifier<ImageSlot?> image = ValueNotifier(null);
+
+  /// True while something is playing (not paused, not idle): the screen
+  /// stays awake only then.
+  final ValueNotifier<bool> active = ValueNotifier(false);
+
+  /// What the info overlay shows about the current item.
+  ItemInfo? info;
+
+  // A playlist of one: the clip repeats inside the player, a photo restarts
+  // its clock, and the Pi is not asked for a "next".
+  bool _loop = false;
+
+  void _publish() {
+    if (!_disposed) active.value = playing;
+  }
 
   String? _itemId;
   String? _url;
@@ -147,7 +177,7 @@ class DisplayPlayer {
   PlayerSnapshot get snapshot => PlayerSnapshot(
     itemId: _itemId,
     playing: _playing,
-    positionMs: _positionMs,
+    positionMs: _isImage && _itemId != null ? _imageElapsed : _positionMs,
     durationMs: _durationMs,
     muted: _muted,
   );
@@ -172,8 +202,12 @@ class DisplayPlayer {
     bool crossfade = true,
     bool kenBurns = false,
     bool cacheRequired = false,
+    bool loop = false,
+    ItemInfo? info,
   }) async {
     final seq = ++_loadSeq;
+    _loop = loop;
+    this.info = info;
     _itemId = itemId;
     _playing = true;
     if (muted != null) _muted = muted;
@@ -181,6 +215,7 @@ class DisplayPlayer {
     _durationMs = null;
     _failed = false;
     _errorTimer?.cancel();
+    _publish();
     if (isImage) {
       await _loadImage(
         seq,
@@ -379,6 +414,9 @@ class DisplayPlayer {
         _stopTimers();
         _stopImage();
         _unpin();
+        info = null;
+        _loop = false;
+        _publish();
         await native.release();
         return;
       case 'mute':
@@ -388,6 +426,7 @@ class DisplayPlayer {
       default:
         return;
     }
+    _publish();
     _sendPosition();
   }
 
@@ -434,6 +473,7 @@ class DisplayPlayer {
       startMs: startMs,
       muted: _muted,
       playing: _playing,
+      loop: _loop,
     );
     if (_disposed) return;
     _statsTimer ??= Timer.periodic(statsInterval, (_) => _readStats());
@@ -488,6 +528,13 @@ class DisplayPlayer {
   /// The item is over (or cannot be played): the Pi moves on, or, without
   /// the Pi, it starts again here.
   Future<void> _finished(String id) async {
+    if (_loop && _isImage && image.value != null && !_failed) {
+      // A playlist of one photo: show it again, no round trip.
+      _imageBefore = 0;
+      _imageSince = _playing ? _now() : null;
+      _armImage(id);
+      return;
+    }
     final seq = _loadSeq;
     var handled = false;
     try {
@@ -532,6 +579,8 @@ class DisplayPlayer {
     _stopTimers();
     _imageTimer?.cancel();
     _unpin();
+    active.value = false;
+    active.dispose();
     image.dispose();
     native.onEnded = null;
     await native.release();

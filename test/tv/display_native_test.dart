@@ -60,6 +60,7 @@ void main() {
         'startMs': 1500,
         'muted': true,
         'playing': false,
+        'loop': false,
       });
       expect(calls[1].arguments, {'action': 'pause'});
       expect(calls[2].arguments, {'action': 'resume'});

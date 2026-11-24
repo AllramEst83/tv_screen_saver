@@ -175,6 +175,7 @@ class VideoSpike(
                         (call.argument<Number>("startMs") ?: 0).toLong(),
                         call.argument<Boolean>("muted") ?: false,
                         call.argument<Boolean>("playing") ?: true,
+                        call.argument<Boolean>("loop") ?: false,
                     )
                     result.success(null)
                 }
@@ -267,13 +268,14 @@ class VideoSpike(
         player = exo
     }
 
-    /** One item over HTTP, started at [startMs], played once (the Dart side decides what comes next). */
+    /** One item over HTTP, started at [startMs], played once, or on repeat when [loop] (a playlist of one). */
     private fun m3OpenItem(
         url: String,
         headers: Map<String, String>,
         startMs: Long,
         muted: Boolean,
         playing: Boolean,
+        loop: Boolean,
     ) {
         m3Release()
         decoderName = null
@@ -294,7 +296,8 @@ class VideoSpike(
         exo.addAnalyticsListener(analytics)
         exo.addListener(endListener)
         exo.setMediaItem(MediaItem.fromUri(url))
-        exo.repeatMode = Player.REPEAT_MODE_OFF
+        // A playlist of one clip loops inside the player: no gap, no reload.
+        exo.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
         exo.volume = if (muted) 0f else 1f
         if (startMs > 0) exo.seekTo(startMs)
         surfaceView?.let { exo.setVideoSurfaceView(it) }

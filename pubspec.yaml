@@ -21,6 +21,7 @@ dependencies:
   path_provider: ^2.1.6
   qr: ^3.0.2
   video_player: ^2.11.1
+  wakelock_plus: ^1.8.2
 
 dev_dependencies:
   flutter_test:

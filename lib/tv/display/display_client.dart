@@ -440,6 +440,13 @@ class DisplayClient extends ChangeNotifier {
       crossfade: msg['transition'] != 'cut',
       kenBurns: msg['kenBurns'] == true,
       cacheRequired: msg['cacheRequired'] == true,
+      loop: msg['loop'] == true,
+      info: ItemInfo(
+        name: msg['name'] as String?,
+        index: (msg['index'] as num?)?.toInt(),
+        count: (msg['count'] as num?)?.toInt(),
+        isImage: msg['kind'] == 'image',
+      ),
     );
     _notify();
   }

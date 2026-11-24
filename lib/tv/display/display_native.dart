@@ -18,6 +18,7 @@ abstract class DisplayVideoNative {
     int startMs = 0,
     bool muted = false,
     bool playing = true,
+    bool loop = false,
   });
 
   Future<void> pause();
@@ -75,12 +76,14 @@ class ChannelDisplayNative implements DisplayVideoNative {
     int startMs = 0,
     bool muted = false,
     bool playing = true,
+    bool loop = false,
   }) => _call<void>('m3OpenItem', {
     'url': url,
     'headers': headers,
     'startMs': startMs,
     'muted': muted,
     'playing': playing,
+    'loop': loop,
   });
 
   @override

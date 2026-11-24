@@ -9,8 +9,10 @@ import 'package:flutter/services.dart';
 import 'package:hub_core/hub_core.dart';
 
 import '../video_spike/spike_native.dart';
+import 'awake_guard.dart';
 import 'display_client.dart';
 import 'idle_view.dart';
+import 'info_overlay.dart';
 import 'image_stage.dart';
 import 'pairing_view.dart';
 
@@ -35,6 +37,8 @@ class DisplayScreen extends StatefulWidget {
     this.media3View,
     this.holdBack = forgetAllHold,
     this.now,
+    this.awake = const WakelockAwakeGuard(),
+    this.infoFor = const Duration(seconds: 8),
   });
 
   final DisplayClient client;
@@ -49,6 +53,12 @@ class DisplayScreen extends StatefulWidget {
 
   /// The idle clock's time source (tests).
   final DateTime Function()? now;
+
+  /// Keeps the screen on while something plays.
+  final AwakeGuard awake;
+
+  /// How long the Info key's overlay stays.
+  final Duration infoFor;
 
   @override
   State<DisplayScreen> createState() => _DisplayScreenState();
@@ -69,6 +79,12 @@ class _DisplayScreenState extends State<DisplayScreen>
   String? _notice;
   Timer? _noticeTimer;
 
+  /// The Info key's overlay: shown for [DisplayScreen.infoFor], redrawn each
+  /// second so the time moves.
+  bool _infoVisible = false;
+  Timer? _infoHide;
+  Timer? _infoTick;
+
   DisplayClient get _client => widget.client;
 
   @override
@@ -76,6 +92,8 @@ class _DisplayScreenState extends State<DisplayScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _client.addListener(_onChanged);
+    _client.player.active.addListener(_syncAwake);
+    _syncAwake();
     unawaited(_client.start());
   }
 
@@ -85,7 +103,11 @@ class _DisplayScreenState extends State<DisplayScreen>
     _backTimer?.cancel();
     _holdClock?.cancel();
     _noticeTimer?.cancel();
+    _infoHide?.cancel();
+    _infoTick?.cancel();
     _client.removeListener(_onChanged);
+    _client.player.active.removeListener(_syncAwake);
+    unawaited(widget.awake.release());
     super.dispose();
   }
 
@@ -93,6 +115,39 @@ class _DisplayScreenState extends State<DisplayScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // A key-up that never arrives must not leave Back "held".
     _resetBack();
+    if (state == AppLifecycleState.resumed) {
+      // The system may have brought its bars or its sleep back meanwhile.
+      unawaited(
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
+      );
+      _syncAwake();
+    }
+  }
+
+  /// Holds the wake lock exactly while something plays.
+  void _syncAwake() {
+    unawaited(
+      _client.player.active.value
+          ? widget.awake.hold()
+          : widget.awake.release(),
+    );
+  }
+
+  void _toggleInfo() {
+    _infoHide?.cancel();
+    _infoTick?.cancel();
+    if (_infoVisible) {
+      setState(() => _infoVisible = false);
+      return;
+    }
+    setState(() => _infoVisible = true);
+    _infoHide = Timer(widget.infoFor, () {
+      _infoTick?.cancel();
+      if (mounted) setState(() => _infoVisible = false);
+    });
+    _infoTick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   /// Forgets a Back press in progress (menu opened, focus or app lost).
@@ -173,9 +228,12 @@ class _DisplayScreenState extends State<DisplayScreen>
       return KeyEventResult.handled;
     }
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
-    if (key == LogicalKeyboardKey.contextMenu ||
-        key == LogicalKeyboardKey.info) {
+    if (key == LogicalKeyboardKey.contextMenu) {
       unawaited(_openMenu());
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.info) {
+      if (!_client.needsPairing && _client.player.hasItem) _toggleInfo();
       return KeyEventResult.handled;
     }
     if (_client.needsPairing) return KeyEventResult.ignored;
@@ -224,6 +282,13 @@ class _DisplayScreenState extends State<DisplayScreen>
                 ),
               Positioned.fill(child: ImageStage(slots: _client.player.image)),
               if (!_client.player.hasItem && !_client.needsPairing) _idleView(),
+              if (_infoVisible && _client.player.hasItem)
+                InfoOverlay(
+                  snapshot: _client.player.snapshot,
+                  info: _client.player.info,
+                  online: _client.connected,
+                  cached: _client.player.fromCache,
+                ),
               if (_client.needsPairing)
                 Positioned.fill(
                   child: PairingView(

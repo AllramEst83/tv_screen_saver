@@ -210,4 +210,59 @@ void main() {
     expect(player.image.value, isNull);
     expect(native.opens, hasLength(1));
   });
+
+  test('a playlist of one clip repeats inside the player', () async {
+    await player.load(
+      itemId: 'v.mp4',
+      url: url('v.mp4'),
+      headers: headers,
+      loop: true,
+    );
+    expect(native.opens.single.loop, isTrue);
+    await player.load(itemId: 'w.mp4', url: url('w.mp4'), headers: headers);
+    expect(native.opens.last.loop, isFalse);
+  });
+
+  test(
+    'a playlist of one photo restarts its clock without asking the Pi',
+    () async {
+      await player.load(
+        itemId: 'p.jpg',
+        url: url('p.jpg'),
+        headers: headers,
+        isImage: true,
+        imageMs: 150,
+        loop: true,
+      );
+      await wait(500);
+      expect(ended, isEmpty);
+      expect(player.image.value, isNotNull);
+      expect(player.snapshot.state, 'playing');
+    },
+  );
+
+  test('the item info and the playing flag follow the player', () async {
+    final seen = <bool>[];
+    player.active.addListener(() => seen.add(player.active.value));
+    await player.load(
+      itemId: 'p.jpg',
+      url: url('p.jpg'),
+      headers: headers,
+      isImage: true,
+      info: const ItemInfo(name: 'Beach', index: 0, count: 3, isImage: true),
+    );
+    expect(player.info!.name, 'Beach');
+    expect(player.active.value, isTrue);
+    await player.control('pause');
+    expect(player.active.value, isFalse);
+    await player.control('stop');
+    expect(player.info, isNull);
+    expect(seen, isNotEmpty);
+  });
+
+  test('the position of a photo moves while it is shown', () async {
+    await photo('p.jpg', ms: 5000);
+    await wait(300);
+    expect(player.snapshot.positionMs, greaterThan(200));
+  });
 }

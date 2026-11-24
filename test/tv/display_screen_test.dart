@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hub_core/hub_core.dart';
+import 'package:tv_saver/tv/display/awake_guard.dart';
 import 'package:tv_saver/tv/display/display_client.dart';
+import 'package:tv_saver/tv/display/display_player.dart';
 import 'package:tv_saver/tv/display/display_screen.dart';
 import 'package:tv_saver/tv/display/idle_view.dart';
 import 'package:tv_saver/tv/display/pairing_view.dart';
@@ -26,10 +28,14 @@ class RecordingDisplayClient extends DisplayClient {
   final List<String> log = [];
   bool pairingWanted = false;
   bool forgetOk = true;
+  bool online = false;
   PairingInfo? pairingInfo;
 
   @override
   Future<void> start() async {}
+
+  @override
+  bool get connected => online;
 
   @override
   bool get needsPairing => pairingWanted;
@@ -64,13 +70,33 @@ class RecordingDisplayClient extends DisplayClient {
   void changed() => notifyListeners();
 }
 
+/// Counts what the screen asks of the wake lock.
+class FakeAwake implements AwakeGuard {
+  final List<String> calls = [];
+  bool held = false;
+
+  @override
+  Future<void> hold() async {
+    held = true;
+    calls.add('hold');
+  }
+
+  @override
+  Future<void> release() async {
+    held = false;
+    calls.add('release');
+  }
+}
+
 void main() {
   late FakeDisplayNative native;
+  late FakeAwake awake;
   late RecordingDisplayClient client;
 
   setUp(() {
     native = FakeDisplayNative();
     client = RecordingDisplayClient(native);
+    awake = FakeAwake();
   });
 
   Widget video(void Function(int) onCreated) {
@@ -84,6 +110,8 @@ void main() {
         home: DisplayScreen(
           client: client,
           media3View: video,
+          awake: awake,
+          infoFor: const Duration(seconds: 4),
           menuBuilder: (ctx, onPairPhone) => Scaffold(
             body: TvMenuScreen(version: '1', onPairPhone: onPairPhone),
           ),
@@ -279,5 +307,117 @@ void main() {
     await tester.pump(const Duration(seconds: 15));
     expect(client.log, isNot(contains('forgetAll')));
     expect(native.calls.where((c) => c == 'release'), hasLength(1));
+  });
+
+  Future<void> playClip(WidgetTester tester, {bool image = false}) async {
+    await tester.runAsync(
+      () => client.player.load(
+        itemId: 'a.mp4',
+        url: 'http://pi/a.mp4',
+        headers: const {},
+        info: ItemInfo(name: 'Fireplace', index: 1, count: 4, isImage: image),
+      ),
+    );
+    client.changed();
+    await tester.pump();
+  }
+
+  testWidgets('Info shows the overlay for a few seconds; Menu still opens '
+      'the menu', (tester) async {
+    await pumpScreen(tester);
+    await playClip(tester);
+    expect(find.byKey(const Key('info-overlay')), findsNothing);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.info);
+    await tester.pump();
+    expect(find.byKey(const Key('info-overlay')), findsOneWidget);
+    expect(find.text('Fireplace'), findsOneWidget);
+    expect(find.text('2 of 4 · Video'), findsOneWidget);
+    expect(find.byKey(const Key('info-time')), findsOneWidget);
+    expect(find.byType(TvMenuScreen), findsNothing);
+
+    await tester.pump(const Duration(seconds: 5));
+    expect(find.byKey(const Key('info-overlay')), findsNothing);
+
+    // Info again toggles it off by hand.
+    await tester.sendKeyEvent(LogicalKeyboardKey.info);
+    await tester.pump();
+    expect(find.byKey(const Key('info-overlay')), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.info);
+    await tester.pump();
+    expect(find.byKey(const Key('info-overlay')), findsNothing);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('the overlay is the only place that says the Pi is away', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    await playClip(tester);
+    expect(find.textContaining('not reachable'), findsNothing);
+    await tester.sendKeyEvent(LogicalKeyboardKey.info);
+    await tester.pump();
+    expect(find.byKey(const Key('info-offline')), findsOneWidget);
+    client.online = true;
+    client.changed();
+    await tester.pump();
+    expect(find.byKey(const Key('info-offline')), findsNothing);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('Info does nothing while nothing plays', (tester) async {
+    await pumpScreen(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.info);
+    await tester.pump();
+    expect(find.byKey(const Key('info-overlay')), findsNothing);
+  });
+
+  testWidgets('the wake lock is held while playing and released otherwise', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    expect(awake.held, isFalse);
+    await playClip(tester);
+    expect(awake.held, isTrue);
+    await tester.runAsync(() => client.player.control('pause'));
+    await tester.pump();
+    expect(awake.held, isFalse);
+    await tester.runAsync(() => client.player.control('resume'));
+    await tester.pump();
+    expect(awake.held, isTrue);
+    await tester.runAsync(() => client.player.control('stop'));
+    await tester.pump();
+    expect(awake.held, isFalse);
+    await tester.runAsync(() => client.player.control('resume'));
+    await tester.pumpWidget(const SizedBox());
+    expect(awake.held, isFalse); // leaving the screen lets go
+  });
+
+  testWidgets('coming back to the app re-applies full screen and the lock', (
+    tester,
+  ) async {
+    final calls = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        calls.add(call.method);
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await pumpScreen(tester);
+    await playClip(tester);
+    awake.calls.clear();
+    calls.clear();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(calls, contains('SystemChrome.setEnabledSystemUIMode'));
+    expect(awake.calls, contains('hold'));
   });
 }

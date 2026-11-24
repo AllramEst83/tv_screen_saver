@@ -170,6 +170,7 @@ class PiServer {
     if (item.kind != 'image') {
       return {
         'kind': item.kind,
+        'name': item.name,
         'cacheRequired': item.cacheRequired,
         'bytes': item.bytes,
       };
@@ -178,6 +179,7 @@ class PiServer {
     final values = settings.values;
     return {
       'kind': 'image',
+      'name': item.name,
       'bytes': item.bytes,
       'imageMs': (list?.imageSeconds ?? settings.imageSeconds) * 1000,
       'transition': list?.transition ?? values['transition'],
