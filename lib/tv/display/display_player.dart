@@ -141,6 +141,10 @@ class DisplayPlayer {
   // its clock, and the Pi is not asked for a "next".
   bool _loop = false;
 
+  /// Width over height of the clip, when the Pi said (the native side plays a
+  /// 16:9 clip on the hardware plane and any other shape fitted, with bars).
+  double? _aspect;
+
   void _publish() {
     if (!_disposed) active.value = playing;
   }
@@ -219,10 +223,12 @@ class DisplayPlayer {
     bool kenBurns = false,
     bool cacheRequired = false,
     bool loop = false,
+    double? aspect,
     ItemInfo? info,
   }) async {
     final seq = ++_loadSeq;
     _loop = loop;
+    _aspect = aspect;
     this.info = info;
     // A photo over a photo fades by itself; every other change dips through
     // black while the next picture starts.
@@ -528,6 +534,7 @@ class DisplayPlayer {
       muted: _muted,
       playing: _playing,
       loop: _loop,
+      aspect: _aspect,
     );
     if (_disposed) return;
     _statsTimer ??= Timer.periodic(statsInterval, (_) => _readStats());

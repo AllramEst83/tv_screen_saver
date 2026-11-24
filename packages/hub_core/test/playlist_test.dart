@@ -250,6 +250,15 @@ void serverExtrasTests() {
         'cacheRequired': true,
         'bytes': 500,
       });
+      await db.libraryItem('b.mp4');
+      await (db.update(
+        db.libraryItems,
+      )..where((t) => t.id.equals('b.mp4'))).write(
+        const LibraryItemsCompanion(width: Value(1080), height: Value(1920)),
+      );
+      final shaped = await server.loadExtras('all', 'b.mp4');
+      expect(shaped['width'], 1080); // the shape the TV letterboxes to
+      expect(shaped['height'], 1920);
     });
 
     test('an unknown item adds nothing', () async {

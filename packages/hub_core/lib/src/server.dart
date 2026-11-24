@@ -173,6 +173,8 @@ class PiServer {
         'name': item.name,
         'cacheRequired': item.cacheRequired,
         'bytes': item.bytes,
+        'width': ?item.width,
+        'height': ?item.height,
       };
     }
     final list = await db.playlistById(playlistId);

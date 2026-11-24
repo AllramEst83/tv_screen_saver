@@ -19,6 +19,7 @@ abstract class DisplayVideoNative {
     bool muted = false,
     bool playing = true,
     bool loop = false,
+    double? aspect,
   });
 
   /// Draws the photo at [path] on the video surface at the panel's own size
@@ -93,6 +94,7 @@ class ChannelDisplayNative implements DisplayVideoNative {
     bool muted = false,
     bool playing = true,
     bool loop = false,
+    double? aspect,
   }) => _call<void>('m3OpenItem', {
     'url': url,
     'headers': headers,
@@ -100,6 +102,7 @@ class ChannelDisplayNative implements DisplayVideoNative {
     'muted': muted,
     'playing': playing,
     'loop': loop,
+    'aspect': aspect,
   });
 
   @override

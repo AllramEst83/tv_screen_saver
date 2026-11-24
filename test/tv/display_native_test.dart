@@ -61,6 +61,7 @@ void main() {
         'muted': true,
         'playing': false,
         'loop': false,
+        'aspect': null,
       });
       expect(calls[1].arguments, {'action': 'pause'});
       expect(calls[2].arguments, {'action': 'resume'});

@@ -422,4 +422,16 @@ void main() {
       expect(player.changing.value, isFalse);
     });
   });
+
+  test('the clip shape the Pi gave goes to the native player', () async {
+    await player.load(
+      itemId: 'v.mp4',
+      url: url('v.mp4'),
+      headers: headers,
+      aspect: 1080 / 1920,
+    );
+    expect(native.opens.last.aspect, closeTo(0.5625, 0.0001));
+    await player.load(itemId: 'w.mp4', url: url('w.mp4'), headers: headers);
+    expect(native.opens.last.aspect, isNull); // unknown: full screen
+  });
 }

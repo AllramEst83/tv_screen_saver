@@ -60,6 +60,10 @@ class VideoSpike(
 ) {
     private var surfaceView: SurfaceView? = null
     private var frame: AspectFrame? = null
+    private var textureView: android.view.TextureView? = null
+
+    /** The current clip plays on the TextureView (not a 16:9 clip). */
+    private var textureMode = false
     private val images = ImageSurface(activity)
     private var player: ExoPlayer? = null
     private var decoderName: String? = null
@@ -73,9 +77,6 @@ class VideoSpike(
             if (playbackState == Player.STATE_ENDED) onItemEnded()
         }
 
-        override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-            frame?.aspect = (displayAspect(player) ?: 0.0).toFloat()
-        }
     }
 
     private val analytics = object : AnalyticsListener {
@@ -126,20 +127,23 @@ class VideoSpike(
     fun factory(): PlatformViewFactory = object : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
         override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
             val view = SurfaceView(context)
+            val texture = android.view.TextureView(context)
             val box = AspectFrame(context)
-            box.addView(
-                view,
-                android.widget.FrameLayout.LayoutParams(
-                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                ),
+            val fill = android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
             )
+            box.addView(view, fill)
+            box.addView(texture, fill)
+            texture.visibility = View.GONE
             frame = box
+            textureView = texture
             attach(view)
             return object : PlatformView {
                 override fun getView(): View = box
                 override fun dispose() {
                     if (frame === box) frame = null
+                    if (textureView === texture) textureView = null
                     detach(view)
                 }
             }
@@ -148,7 +152,7 @@ class VideoSpike(
 
     private fun attach(view: SurfaceView) {
         surfaceView = view
-        player?.setVideoSurfaceView(view)
+        if (!textureMode) player?.setVideoSurfaceView(view)
     }
 
     private fun detach(view: SurfaceView) {
@@ -195,6 +199,7 @@ class VideoSpike(
                         call.argument<Boolean>("muted") ?: false,
                         call.argument<Boolean>("playing") ?: true,
                         call.argument<Boolean>("loop") ?: false,
+                        call.argument<Double>("aspect"),
                     )
                     result.success(null)
                 }
@@ -314,8 +319,25 @@ class VideoSpike(
         muted: Boolean,
         playing: Boolean,
         loop: Boolean,
+        aspect: Double?,
     ) {
         m3Release()
+        // A 16:9 clip (or one whose shape is unknown) plays on the hardware
+        // plane at full screen. Any other shape plays on the TextureView,
+        // fitted with bars, because that plane cannot be reshaped here.
+        val tex = textureView
+        val box = frame
+        textureMode = aspect != null && aspect > 0.0 && tex != null && box != null &&
+            Math.abs(aspect / (16.0 / 9.0) - 1.0) > 0.03
+        if (textureMode) {
+            box!!.fit = aspect!!.toFloat()
+            tex!!.visibility = View.VISIBLE
+            surfaceView?.visibility = View.GONE
+        } else {
+            box?.fit = 0f
+            tex?.visibility = View.GONE
+            surfaceView?.visibility = View.VISIBLE
+        }
         decoderName = null
         droppedFrames = 0
         inputFormat = null
@@ -340,14 +362,17 @@ class VideoSpike(
         exo.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
         exo.volume = if (muted) 0f else 1f
         if (startMs > 0) exo.seekTo(startMs)
-        surfaceView?.let { exo.setVideoSurfaceView(it) }
+        if (textureMode) {
+            exo.setVideoTextureView(textureView)
+        } else {
+            surfaceView?.let { exo.setVideoSurfaceView(it) }
+        }
         exo.prepare()
         exo.playWhenReady = playing
         player = exo
     }
 
     private fun m3Release() {
-        frame?.aspect = 0f
         player?.let {
             it.removeListener(endListener)
             it.removeAnalyticsListener(analytics)

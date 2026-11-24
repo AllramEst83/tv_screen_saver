@@ -14,6 +14,7 @@ typedef FakeOpen = ({
   bool muted,
   bool playing,
   bool loop,
+  double? aspect,
 });
 
 /// [DisplayVideoNative] that records what the player asked and answers
@@ -54,6 +55,7 @@ class FakeDisplayNative implements DisplayVideoNative {
     bool muted = false,
     bool playing = true,
     bool loop = false,
+    double? aspect,
   }) async {
     opens.add((
       url: url,
@@ -62,6 +64,7 @@ class FakeDisplayNative implements DisplayVideoNative {
       muted: muted,
       playing: playing,
       loop: loop,
+      aspect: aspect,
     ));
   }
 
