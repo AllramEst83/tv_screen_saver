@@ -11,6 +11,8 @@ import 'package:hub_core/hub_core.dart';
 import 'shared/secure_token_store.dart';
 import 'tv/cache/media_cache.dart';
 import 'tv/display/playback_log.dart';
+import 'tv/update/update_source_store.dart';
+import 'tv/update/updater.dart';
 import 'tv/display/display_client.dart';
 import 'tv/display/display_native.dart';
 import 'tv/display/display_screen.dart';
@@ -55,6 +57,7 @@ Future<void> main() async {
 
   final cache = await _openCache();
   final log = await _openLog();
+  final updater = await _openUpdater();
   final store = SecureTokenStore();
   final display = DisplayClient(
     client: HubClient(
@@ -82,6 +85,7 @@ Future<void> main() async {
             version: version,
             panel: panel,
             onPairPhone: onPairPhone,
+            updater: updater,
           ),
         ),
       ),
@@ -149,5 +153,23 @@ Future<PlaybackLog> _openLog() async {
   } catch (e) {
     debugPrint('TV Saver: no playback log: $e');
     return const NoPlaybackLog();
+  }
+}
+
+/// The self-updater (story 6-1) with its address remembered in the app's own
+/// directory. A quiet check at start finds out whether an update is waiting;
+/// the Menu screen then says so. Null when the directory cannot be found.
+Future<TvUpdater?> _openUpdater() async {
+  try {
+    final base = await getApplicationSupportDirectory();
+    final updater = TvUpdater(
+      store: FileUpdateSourceStore(File('${base.path}/update-source.txt')),
+    );
+    await updater.loadSavedSource();
+    unawaited(updater.check());
+    return updater;
+  } catch (e) {
+    debugPrint('TV Saver: no updater: $e');
+    return null;
   }
 }

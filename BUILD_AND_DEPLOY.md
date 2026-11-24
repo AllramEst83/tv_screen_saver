@@ -448,3 +448,20 @@ bash tool/tv/soak_report.sh build/measurements/soak-<time>.tsv build/measurement
 It prints the duration, every interruption with its time, the memory of the first and the last hour and the trend. **PASS** = no interruption, trend under 10 MB/h and the last hour less than 100 MB above the first. It needs 2 hours or more of samples; with less it says so (exit code 3). An interruption means the TV settings above are not enough: tell me what it says and we decide.
 
 **Self-test of the tools:** `bash tool/tv/test/test_soak_scripts.sh` (no TV needed).
+
+## 17. Update the TV from the PC (story 6-1)
+
+The desktop PC serves the update; the Pi is not involved. The PC and the TV must be on the same network, so put the PC's Wi-Fi on Floor 1 (as for `adb install`).
+
+1. Raise `version:` in `pubspec.yaml` (the number after the `+` is what the TV compares) and build the TV APK (section 4). It is signed with the same upload keystore as the installed app, which Android requires for an update.
+2. On the PC, from the project root:
+
+   ```bash
+   dart run tool/serve_tv_update.dart [apk-path] [port] [--tv=<tv-ip>]
+   ```
+
+   It serves `build/app/outputs/flutter-apk/app-tv-release.apk` on port 8099, prints the version and checksum, and lists the addresses to type on the TV (the one on the TV's network is marked when `--tv` is given or an adb device is connected). Leave it running.
+3. On the TV: Menu key, then **Down**. The first time press **Up**, type the printed address (`http://<pc>:8099/update.json`; the host and port alone is enough) and confirm. It is remembered.
+4. The screen checks at once. When it says "Version x is ready", press **OK**: the TV downloads the APK, verifies its sha256 and opens the system installer, which asks for the last word. The first time Android also asks you to allow TV Saver to install apps (a system screen; the app changes nothing itself). If you leave the installer without installing, the screen says so and OK tries again.
+
+The Menu screen also says "Version x is ready: press Down" after the app has found one at start. A manifest without a checksum, an APK on another host or a damaged download is refused.

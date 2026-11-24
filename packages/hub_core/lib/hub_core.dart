@@ -29,3 +29,4 @@ export 'src/server/tool_runner.dart';
 export 'src/token_store.dart';
 export 'src/tv_store.dart';
 export 'src/update_manifest.dart';
+export 'src/update_server.dart';

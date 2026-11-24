@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'pi/pi_screen.dart';
 import 'report_screen.dart';
 import 'display_report.dart';
+import 'update/update_screen.dart';
+import 'update/updater.dart';
 import 'video_spike/spike_screen.dart';
 
 /// The Menu key's screen: the DisplayReport with the way into the earlier
@@ -16,6 +18,7 @@ class TvMenuScreen extends StatelessWidget {
     required this.version,
     this.panel,
     this.onPairPhone,
+    this.updater,
   });
 
   final String version;
@@ -26,6 +29,9 @@ class TvMenuScreen extends StatelessWidget {
 
   /// Called after the menu closes itself; null hides the Left key.
   final VoidCallback? onPairPhone;
+
+  /// The self-updater (story 6-1); null hides the Down key.
+  final TvUpdater? updater;
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +57,14 @@ class TvMenuScreen extends StatelessWidget {
           ).push(MaterialPageRoute<void>(builder: (_) => const SpikeScreen()));
           return KeyEventResult.handled;
         }
+        if (key == LogicalKeyboardKey.arrowDown && updater != null) {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => UpdateScreen(updater: updater!, version: version),
+            ),
+          );
+          return KeyEventResult.handled;
+        }
         if (key == LogicalKeyboardKey.arrowLeft && onPairPhone != null) {
           Navigator.of(context).pop();
           onPairPhone!();
@@ -70,6 +84,17 @@ class TvMenuScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                if (updater != null)
+                  ValueListenableBuilder<UpdateState>(
+                    valueListenable: updater!.state,
+                    builder: (context, s, _) => Text(
+                      s.phase == UpdatePhase.available
+                          ? 'Version ${s.versionName} is ready: press Down'
+                          : 'Down: update',
+                      key: const Key('menu-update-hint'),
+                      style: hint,
+                    ),
+                  ),
                 Text('OK: Pi stream   Right: video spike', style: hint),
                 if (onPairPhone != null)
                   Text('Left: pair another phone   Back: close', style: hint),

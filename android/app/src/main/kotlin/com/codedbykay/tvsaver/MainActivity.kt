@@ -1,6 +1,8 @@
 package com.codedbykay.tvsaver
 
 import android.content.Context
+import androidx.core.content.FileProvider
+import java.io.File
 import android.content.Intent
 import android.net.Uri
 import android.net.wifi.WifiManager
@@ -61,6 +63,49 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     else -> result.notImplemented()
+                }
+            }
+
+        // Story 6-1: the TV app installs its own update from the app cache.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tvsaver/installer")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "install") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                try {
+                    val path = call.argument<String>("path")
+                    val file = path?.let { File(it) }
+                    if (file == null ||
+                        !file.canonicalPath.startsWith(cacheDir.canonicalPath + File.separator) ||
+                        !file.exists()
+                    ) {
+                        result.error("bad_path", "The update file is not in the app's cache", null)
+                        return@setMethodCallHandler
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                        // The system screen where the person allows this app to
+                        // install apps; nothing is changed from here.
+                        try {
+                            startActivity(
+                                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        } catch (_: Exception) {
+                            // No such screen on this TV: Dart still shows the help text.
+                        }
+                        result.success("needs_permission")
+                        return@setMethodCallHandler
+                    }
+                    val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                    startActivity(
+                        Intent(Intent.ACTION_VIEW)
+                            .setDataAndType(uri, "application/vnd.android.package-archive")
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    result.success("started")
+                } catch (e: Exception) {
+                    result.error("install_failed", e.message ?: "Could not start the installer", null)
                 }
             }
 
