@@ -311,10 +311,8 @@ class _DisplayScreenState extends State<DisplayScreen>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // The surface fills the screen and never changes size; the
-              // native frame around it keeps a clip's own shape.
               if (!_menuOpen)
-                Positioned.fill(
+                Center(
                   child:
                       widget.media3View?.call(_onMedia3ViewCreated) ??
                       _media3View(),

@@ -28,14 +28,6 @@ int _widthOf(Object? render) {
   return m == null ? 0 : int.parse(m.group(1)!);
 }
 
-/// Width over height from a `display.load` frame, or null.
-double? _aspectOf(Object? width, Object? height) {
-  if (width is! num || height is! num || width <= 0 || height <= 0) {
-    return null;
-  }
-  return width / height;
-}
-
 bool _isPhoto(String id) {
   final dot = id.lastIndexOf('.');
   if (dot < 0) return false;
@@ -473,7 +465,6 @@ class DisplayClient extends ChangeNotifier {
       kenBurns: msg['kenBurns'] == true,
       cacheRequired: msg['cacheRequired'] == true,
       loop: msg['loop'] == true,
-      aspect: _aspectOf(msg['width'], msg['height']),
       info: ItemInfo(
         name: msg['name'] as String?,
         index: (msg['index'] as num?)?.toInt(),
